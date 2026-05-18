@@ -1,0 +1,19 @@
+# Build output
+build/
+
+# External dependencies (fetched separately)
+external/imgui/
+external/stb_image.h
+
+# Compiled shaders
+*.spv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
