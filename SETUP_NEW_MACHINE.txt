@@ -1,0 +1,24 @@
+# ============================================================
+#  UI_Vulkan — 首次克隆后完整构建流程
+#  在新机器上逐行执行以下命令
+# ============================================================
+
+# 1. 克隆仓库 SDR 分支
+git clone -b SDR git@github.com:wchen-h/UI_Vulkan.git
+cd UI_Vulkan
+
+# 2. 拉取外部依赖
+mkdir -p external && cd external
+git clone --depth 1 --branch docking https://github.com/ocornut/imgui.git
+curl -o stb_image.h https://raw.githubusercontent.com/nothings/stb/master/stb_image.h
+cd ..
+
+# 3. 确认图片资源就位 (应与工程平级)
+ls ../python/pic/cropped_images/*.png | head -5
+
+# 4. 编译 (Linux)
+cmake -B build -S .
+cmake --build build -j$(nproc)
+
+# 5. 运行
+./build/UI_Vulkan

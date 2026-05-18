@@ -14,9 +14,6 @@ external/stb_image.h
 *.swp
 *.swo
 
-# Local setup script (not tracked)
-SETUP_NEW_MACHINE.txt
-
 # OS
 .DS_Store
 Thumbs.db
