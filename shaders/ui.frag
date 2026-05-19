@@ -10,7 +10,8 @@ layout(binding = 1) uniform sampler2D texAlpha;  // linear alpha texture
 layout(push_constant) uniform FragPush {
     // bytes 0-15: vertex (offset + scale) — shared range
     layout(offset = 16) float uiAlphaMultiplier; // bytes 16-19
-    layout(offset = 20) float bgLinear;           // bytes 20-23 (SDR=0.18, HDR=BG_nit/500.0)
+    layout(offset = 20) float bgLinear;           // bytes 20-23
+    layout(offset = 24) float uiLumMult;          // bytes 24-27 (SDR=1.0, HDR=uiLumRatio)
 } fpc;
 
 layout(location = 0) in vec2 fragUV;
@@ -21,7 +22,10 @@ void main() {
     float uiAlpha = texture(texAlpha, fragUV).r;
     uiAlpha      *= fpc.uiAlphaMultiplier;
 
+    // Apply brightness multiplier to UI
+    vec3 uiAdj = uiRGB * fpc.uiLumMult;
+
     // Alpha-over blend in linear domain
-    vec3 blended = uiRGB * uiAlpha + fpc.bgLinear * (1.0 - uiAlpha);
+    vec3 blended = uiAdj * uiAlpha + fpc.bgLinear * (1.0 - uiAlpha);
     outColor = vec4(blended, 1.0);
 }

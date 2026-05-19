@@ -1339,7 +1339,7 @@ void VulkanApp::createPipelines() {
         VkPushConstantRange pqPCR{};
         pqPCR.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
         pqPCR.offset = 0;
-        pqPCR.size = 32;  // 8 floats
+        pqPCR.size = 8;  // 2 floats: maxNit + hdrOk
 
         VkPipelineLayoutCreateInfo plCI{};
         plCI.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -1655,14 +1655,17 @@ void VulkanApp::recordUIPass(VkCommandBuffer cmd, uint32_t imageIdx) {
     float scaleY  = -fracY * 2.0f;
 
     // Push constants struct: 32 bytes
-    // bytes 0-15: vertex (offset+scale)
-    // bytes 16-19: uiAlpha
+    // bytes 0-15:  vertex (offset+scale)
+    // bytes 16-19: alpha
     // bytes 20-23: bgLinear
-    struct PC { float ox, oy, sx, sy, alpha, bgLinear; float pad[2]; };
+    // bytes 24-27: uiLumMult
+    // bytes 28-31: pad
+    struct PC { float ox, oy, sx, sy, alpha, bgLinear, uiLumMult; float pad; };
     PC pc{};
     pc.ox = offsetX; pc.oy = offsetY;
     pc.sx = scaleX;  pc.sy = scaleY;
     pc.alpha = uiAlpha_;
+    pc.uiLumMult = 1.0f;
 
     // Clear + draw: use DONT_CARE since we clear manually with scissor
     VkRenderPassBeginInfo rp{};
@@ -1703,6 +1706,10 @@ void VulkanApp::recordUIPass(VkCommandBuffer cmd, uint32_t imageIdx) {
         VkRect2D scissor{ {(int32_t)swapchainExt_.width/2, 0}, {swapchainExt_.width/2, swapchainExt_.height} };
         vkCmdSetScissor(cmd, 0, 1, &scissor);
         pc.ox = 0.5f - fracX;  // center UI in right half (NDC center at +0.5)
+        float aa = std::max(uiAlphaAvg_[currentUI_], 0.001f);
+        float la = std::max(uiLumAvg_[currentUI_], 0.01f);
+        pc.alpha     = effAlpha_ / aa;             // effective alpha ratio
+        pc.uiLumMult = uiLumNit_ / (la * 500.0f); // brightness ratio
         float hdrBg = bgNit_ / 500.0f;
         VkClearAttachment clearAtt{};
         clearAtt.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -1775,21 +1782,12 @@ void VulkanApp::recordSRGBPass(VkCommandBuffer cmd, uint32_t imageIdx) {
         float fx = (float)uiW / swapchainExt_.width;
         float fy = (float)uiH / swapchainExt_.height;
 
-        struct PQPC {
-            float wp, bg, maxNit, hdrOk;
-            float uiL, uiR, uiB, uiT;
-        } pq;
-        pq.wp    = 500.0f;
-        pq.bg    = bgNit_;
+        struct PQPC { float maxNit, hdrOk; } pq;
         pq.maxNit = maxDisplayNit_;
-        pq.hdrOk = hdrSupported_ ? 1.0f : 0.0f;
-        pq.uiL   =  0.5f - fx;  pq.uiR = 0.5f + fx;  // NDC right-half center
-        pq.uiB   = -fy;         pq.uiT = fy;          // NDC bottom/top (same)
+        pq.hdrOk  = hdrSupported_ ? 1.0f : 0.0f;
         static int pqFrame = 0;
         if (++pqFrame <= 3) std::cout << "[PQ] frame " << pqFrame
-            << " bg=" << pq.bg << " maxNit=" << pq.maxNit << " hdrOk=" << pq.hdrOk
-            << " uiBounds=[" << pq.uiL << "," << pq.uiR << "," << pq.uiB << "," << pq.uiT << "]"
-            << std::endl;
+            << " maxNit=" << pq.maxNit << " hdrOk=" << pq.hdrOk << std::endl;
         vkCmdPushConstants(cmd, pqPipeLayout_, VK_SHADER_STAGE_FRAGMENT_BIT,
                            0, sizeof(pq), &pq);
         vkCmdDraw(cmd, 3, 1, 0, 0);
