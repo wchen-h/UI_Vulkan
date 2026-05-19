@@ -1220,6 +1220,12 @@ void VulkanApp::createPipelines() {
         pi.pRasterizationState = &rs;
         pi.pMultisampleState   = &ms;
         pi.pColorBlendState    = &cb;
+        VkDynamicState uidyn[] = { VK_DYNAMIC_STATE_SCISSOR };
+        VkPipelineDynamicStateCreateInfo uidynCI{};
+        uidynCI.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        uidynCI.dynamicStateCount = 1;
+        uidynCI.pDynamicStates = uidyn;
+        pi.pDynamicState = &uidynCI;
         pi.layout              = uiPipeLayout_;
         pi.renderPass          = uiRenderPass_;
         pi.subpass             = 0;
@@ -1283,6 +1289,12 @@ void VulkanApp::createPipelines() {
         pi.pVertexInputState=&vi;   pi.pInputAssemblyState=&ia;
         pi.pViewportState=&vs;      pi.pRasterizationState=&rs;
         pi.pMultisampleState=&ms;   pi.pColorBlendState=&cb;
+        VkDynamicState dynStates[] = { VK_DYNAMIC_STATE_SCISSOR };
+        VkPipelineDynamicStateCreateInfo dynCI{};
+        dynCI.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        dynCI.dynamicStateCount = 1;
+        dynCI.pDynamicStates = dynStates;
+        pi.pDynamicState = &dynCI;
         pi.layout=srgbPipeLayout_;  pi.renderPass=srgbRenderPass_; pi.subpass=0;
         vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &srgbPipeline_);
     }
@@ -1371,6 +1383,12 @@ void VulkanApp::createPipelines() {
         pi.pVertexInputState=&vi; pi.pInputAssemblyState=&ia;
         pi.pViewportState=&vs; pi.pRasterizationState=&rs;
         pi.pMultisampleState=&ms; pi.pColorBlendState=&cb;
+        VkDynamicState dynStates[] = { VK_DYNAMIC_STATE_SCISSOR };
+        VkPipelineDynamicStateCreateInfo dynCI{};
+        dynCI.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        dynCI.dynamicStateCount = 1;
+        dynCI.pDynamicStates = dynStates;
+        pi.pDynamicState = &dynCI;
         pi.layout=pqPipeLayout_; pi.renderPass=srgbRenderPass_; pi.subpass=0;
         vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &pqPipeline_);
     }
@@ -1661,6 +1679,8 @@ void VulkanApp::recordUIPass(VkCommandBuffer cmd, uint32_t imageIdx) {
 
     // === 左半：SDR 背景 0.18 ===
     {
+        VkRect2D scissor{ {0,0}, {swapchainExt_.width/2, swapchainExt_.height} };
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
         VkClearAttachment clearAtt{};
         clearAtt.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         clearAtt.clearValue.color = {{ BG_GRAY, BG_GRAY, BG_GRAY, 1.0f }};
@@ -1679,6 +1699,8 @@ void VulkanApp::recordUIPass(VkCommandBuffer cmd, uint32_t imageIdx) {
 
     // === 右半：HDR 背景 BG_nit/500 ===
     {
+        VkRect2D scissor{ {(int32_t)swapchainExt_.width/2, 0}, {swapchainExt_.width/2, swapchainExt_.height} };
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
         float hdrBg = bgNit_ / 500.0f;
         VkClearAttachment clearAtt{};
         clearAtt.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
