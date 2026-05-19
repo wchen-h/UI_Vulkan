@@ -1050,7 +1050,7 @@ void VulkanApp::createPipelines() {
     {
         VkDescriptorPoolSize sizes[] = {
             { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-              static_cast<uint32_t>(uiPairs_.size() * 2 + 1) }
+              static_cast<uint32_t>(uiPairs_.size() * 2 + 2) }  // UI*2 + sRGB + PQ
         };
         VkDescriptorPoolCreateInfo ci{};
         ci.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
