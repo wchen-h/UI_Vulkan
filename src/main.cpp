@@ -35,7 +35,7 @@ namespace fs = std::filesystem;
 // ============================================================================
 // 常量
 // ============================================================================
-constexpr int   WINDOW_WIDTH  = 1310;
+constexpr int   WINDOW_WIDTH  = 2620;  // SDR(1310) + HDR(1310)
 constexpr int   WINDOW_HEIGHT = 1498;
 constexpr float BG_GRAY       = 0.18f;   // 18% 灰度 (linear 域)
 
@@ -1522,7 +1522,7 @@ void VulkanApp::run() {
 
         // === HDR 控制面板 (右下) ===
         if (hdrSupported_ || true) {  // 总是显示，方便观察参数
-            ImGui::SetNextWindowPos(ImVec2(10, 160), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowPos(ImVec2(WINDOW_WIDTH/2.0f + 10, 10), ImGuiCond_FirstUseEver);
             ImGui::SetNextWindowSize(ImVec2(620, 400), ImGuiCond_FirstUseEver);
             ImGui::Begin("HDR Controls", nullptr,
                          ImGuiWindowFlags_AlwaysAutoResize);
@@ -1681,6 +1681,7 @@ void VulkanApp::recordUIPass(VkCommandBuffer cmd, uint32_t imageIdx) {
     {
         VkRect2D scissor{ {0,0}, {swapchainExt_.width/2, swapchainExt_.height} };
         vkCmdSetScissor(cmd, 0, 1, &scissor);
+        pc.ox = -0.5f - fracX;  // center UI in left half (NDC center at -0.5)
         VkClearAttachment clearAtt{};
         clearAtt.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         clearAtt.clearValue.color = {{ BG_GRAY, BG_GRAY, BG_GRAY, 1.0f }};
@@ -1701,6 +1702,7 @@ void VulkanApp::recordUIPass(VkCommandBuffer cmd, uint32_t imageIdx) {
     {
         VkRect2D scissor{ {(int32_t)swapchainExt_.width/2, 0}, {swapchainExt_.width/2, swapchainExt_.height} };
         vkCmdSetScissor(cmd, 0, 1, &scissor);
+        pc.ox =  0.5f - fracX;  // center UI in right half (NDC center at +0.5)
         float hdrBg = bgNit_ / 500.0f;
         VkClearAttachment clearAtt{};
         clearAtt.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
