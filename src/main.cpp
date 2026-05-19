@@ -1785,6 +1785,11 @@ void VulkanApp::recordSRGBPass(VkCommandBuffer cmd, uint32_t imageIdx) {
         pq.hdrOk = hdrSupported_ ? 1.0f : 0.0f;
         pq.uiL   =  0.5f - fx;  pq.uiR = 0.5f + fx;  // NDC right-half center
         pq.uiB   = -fy;         pq.uiT = fy;          // NDC bottom/top (same)
+        static int pqFrame = 0;
+        if (++pqFrame <= 3) std::cout << "[PQ] frame " << pqFrame
+            << " bg=" << pq.bg << " maxNit=" << pq.maxNit << " hdrOk=" << pq.hdrOk
+            << " uiBounds=[" << pq.uiL << "," << pq.uiR << "," << pq.uiB << "," << pq.uiT << "]"
+            << std::endl;
         vkCmdPushConstants(cmd, pqPipeLayout_, VK_SHADER_STAGE_FRAGMENT_BIT,
                            0, sizeof(pq), &pq);
         vkCmdDraw(cmd, 3, 1, 0, 0);
