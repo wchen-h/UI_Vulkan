@@ -36,6 +36,7 @@ set(SHADER_SPV_FILES
     ${SHADER_BUILD_DIR}/ui.frag.spv
     ${SHADER_BUILD_DIR}/srgb_convert.vert.spv
     ${SHADER_BUILD_DIR}/srgb_convert.frag.spv
+    ${SHADER_BUILD_DIR}/pq_convert.frag.spv
 )
 
 # Custom commands: compile each shader
@@ -62,6 +63,12 @@ add_custom_command(
     COMMAND glslangValidator -V ${SHADER_SRC_DIR}/srgb_convert.frag -o ${SHADER_BUILD_DIR}/srgb_convert.frag.spv
     DEPENDS ${SHADER_SRC_DIR}/srgb_convert.frag
     COMMENT "SPIR-V: srgb_convert.frag"
+)
+add_custom_command(
+    OUTPUT ${SHADER_BUILD_DIR}/pq_convert.frag.spv
+    COMMAND glslangValidator -V ${SHADER_SRC_DIR}/pq_convert.frag -o ${SHADER_BUILD_DIR}/pq_convert.frag.spv
+    DEPENDS ${SHADER_SRC_DIR}/pq_convert.frag
+    COMMENT "SPIR-V: pq_convert.frag"
 )
 
 # Custom target for shader compilation

@@ -202,6 +202,24 @@ private:
     // 每个 UI 的独立描述符集（不同的纹理）
     std::vector<VkDescriptorSet> uiDescSets_;
 
+    // ========== HDR 数据 ==========
+    bool hdrSupported_ = false;               // 设备+显示器支持 HDR 输出
+    VkPipelineLayout pqPipeLayout_ = VK_NULL_HANDLE;
+    VkPipeline       pqPipeline_   = VK_NULL_HANDLE;
+    VkDescriptorSetLayout pqDescLayout_ = VK_NULL_HANDLE;
+    VkDescriptorSet       pqDescSet_    = VK_NULL_HANDLE;
+
+    float maxDisplayNit_    = 1000.0f;        // 显示器峰值 nit (用户可改)
+    float bgNit_            = 500.0f;         // 背景亮度 nit
+    float uiLumNit_         = 500.0f;         // UI 亮度 nit (slider 调节)
+    float effAlpha_         = 1.0f;           // 有效不透明度
+    bool  phase1Locked_     = false;          // Phase1 基准已锁定?
+    float lumResLocked_     = 0.0f;           // 锁定时的 Lum_res
+
+    // UI 平均属性 (每对预计算)
+    std::vector<float> uiAlphaAvg_;           // avg(texture alpha)
+    std::vector<float> uiLumAvg_;             // avg(linear luminance, alpha-weighted)
+
     // UI 顶点 quad (unit square)
     VkBuffer        quadVB_ = VK_NULL_HANDLE;
     VkDeviceMemory  quadVBMem_ = VK_NULL_HANDLE;
@@ -240,6 +258,9 @@ VulkanApp::~VulkanApp() {
     if (descPool_)       vkDestroyDescriptorPool(device_, descPool_, nullptr);
     if (uiDescLayout_)   vkDestroyDescriptorSetLayout(device_, uiDescLayout_, nullptr);
     if (srgbDescLayout_) vkDestroyDescriptorSetLayout(device_, srgbDescLayout_, nullptr);
+    if (pqPipeline_)    vkDestroyPipeline(device_, pqPipeline_, nullptr);
+    if (pqPipeLayout_)  vkDestroyPipelineLayout(device_, pqPipeLayout_, nullptr);
+    if (pqDescLayout_)  vkDestroyDescriptorSetLayout(device_, pqDescLayout_, nullptr);
     if (sampler_)     vkDestroySampler(device_, sampler_, nullptr);
     if (samplerNear_) vkDestroySampler(device_, samplerNear_, nullptr);
 
@@ -505,6 +526,19 @@ void VulkanApp::initVulkan() {
     // 仅在 UNORM 时 shader 软编码；SRGB 格式由硬件编码
     needsSRGBEncode_ = (swapchainFmt_ != VK_FORMAT_B8G8R8A8_SRGB
                      && swapchainFmt_ != VK_FORMAT_R8G8B8A8_SRGB);
+    // HDR 能力检测
+    hdrSupported_ = (hasExt(VK_EXT_HDR_METADATA_EXTENSION_NAME));
+    for (auto& sf : surfaceFmts) {
+        if (sf.colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT
+         && (sf.format == VK_FORMAT_A2B10G10R10_UNORM_PACK32
+          || sf.format == VK_FORMAT_A2R10G10B10_UNORM_PACK32)) {
+            hdrSupported_ = true;
+            break;
+        }
+    }
+    std::cout << "[VK] HDR output: " << (hdrSupported_ ? "YES" : "NO")
+              << " (need VK_EXT_hdr_metadata + ST2084 surface)" << std::endl;
+
     std::cout << "[VK] Swapchain format: " << swapchainFmt_
               << (needsSRGBEncode_ ? " (sw sRGB)" : " (hw sRGB)")
               << ", colorspace: " << swapchainCS_ << std::endl;
@@ -592,6 +626,28 @@ void VulkanApp::loadAssets() {
                       pair.rgb.img, pair.rgb.mem, pair.rgb.view);
         uploadTexture(wA, hA, VK_FORMAT_R8_UNORM, alphaPx,
                       pair.alpha.img, pair.alpha.mem, pair.alpha.view);
+
+        // 预计算 UI 平均 alpha 和亮度 (HDR 联动需要)
+        {
+            float sumAlpha = 0.0f, sumLum = 0.0f;
+            int countAlpha = 0;
+            for (int i = 0; i < wR * hR; ++i) {
+                uint8_t a8 = alphaPx[i];
+                if (a8 == 0) continue;
+                float a = a8 / 255.0f;
+                float r = rgbPx[i*4+0] / 255.0f, g = rgbPx[i*4+1] / 255.0f, b = rgbPx[i*4+2] / 255.0f;
+                // sRGB→linear (approx)
+                auto s2l = [](float c){ return c <= 0.04045f ? c/12.92f : powf((c+0.055f)/1.055f, 2.4f); };
+                float lum = 0.2126f * s2l(r) + 0.7152f * s2l(g) + 0.0722f * s2l(b);
+                sumAlpha += a;
+                sumLum   += lum * a;
+                countAlpha++;
+            }
+            uiAlphaAvg_.push_back(countAlpha > 0 ? sumAlpha / (wR * hR) : 0.001f);
+            uiLumAvg_.push_back(sumAlpha > 0 ? sumLum / sumAlpha : 0.01f);
+            std::cout << "[AVG] " << key << " alpha_avg=" << uiAlphaAvg_.back()
+                      << " lum_avg=" << uiLumAvg_.back() << std::endl;
+        }
 
         stbi_image_free(rgbPx);
         stbi_image_free(alphaPx);
@@ -802,7 +858,7 @@ void VulkanApp::createRenderPasses() {
         VkAttachmentDescription colorAtt{};
         colorAtt.format         = linearFmt_;
         colorAtt.samples        = VK_SAMPLE_COUNT_1_BIT;
-        colorAtt.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        colorAtt.loadOp         = VK_ATTACHMENT_LOAD_OP_DONT_CARE;  // manual clear via vkCmdClearAttachments
         colorAtt.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
         colorAtt.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         colorAtt.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -998,7 +1054,7 @@ void VulkanApp::createPipelines() {
         };
         VkDescriptorPoolCreateInfo ci{};
         ci.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        ci.maxSets       = static_cast<uint32_t>(uiPairs_.size() + 1);
+        ci.maxSets       = static_cast<uint32_t>(uiPairs_.size() + 2);  // +1 srgb +1 pq
         ci.poolSizeCount = 1;
         ci.pPoolSizes    = sizes;
         vkCreateDescriptorPool(device_, &ci, nullptr, &descPool_);
@@ -1231,11 +1287,100 @@ void VulkanApp::createPipelines() {
         vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &srgbPipeline_);
     }
 
+    // --- PQ (HDR) 管线 ---
+    auto pqFragCode = readFile(std::string(SHADER_DIR) + "pq_convert.frag.spv");
+    auto pqFragMod  = createShaderModule(device_, pqFragCode);
+
+    {
+        VkDescriptorSetLayoutBinding bind{};
+        bind.binding         = 0;
+        bind.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bind.descriptorCount = 1;
+        bind.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+        VkDescriptorSetLayoutCreateInfo ci{};
+        ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        ci.bindingCount = 1;
+        ci.pBindings = &bind;
+        vkCreateDescriptorSetLayout(device_, &ci, nullptr, &pqDescLayout_);
+    }
+    {
+        VkDescriptorSetAllocateInfo ai{};
+        ai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        ai.descriptorPool = descPool_;
+        ai.descriptorSetCount = 1;
+        ai.pSetLayouts = &pqDescLayout_;
+        vkAllocateDescriptorSets(device_, &ai, &pqDescSet_);
+        VkDescriptorImageInfo imgInfo{};
+        imgInfo.sampler = sampler_;
+        imgInfo.imageView = linearView_;
+        imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        VkWriteDescriptorSet write{};
+        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet = pqDescSet_;
+        write.dstBinding = 0;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.descriptorCount = 1;
+        write.pImageInfo = &imgInfo;
+        vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+    }
+    {
+        VkPushConstantRange pqPCR{};
+        pqPCR.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        pqPCR.offset = 0;
+        pqPCR.size = 32;  // 8 floats
+
+        VkPipelineLayoutCreateInfo plCI{};
+        plCI.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        plCI.setLayoutCount = 1;
+        plCI.pSetLayouts = &pqDescLayout_;
+        plCI.pushConstantRangeCount = 1;
+        plCI.pPushConstantRanges = &pqPCR;
+        vkCreatePipelineLayout(device_, &plCI, nullptr, &pqPipeLayout_);
+
+        VkPipelineShaderStageCreateInfo stages[] = {
+            {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
+             VK_SHADER_STAGE_VERTEX_BIT, srgbVertMod, "main", nullptr},
+            {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
+             VK_SHADER_STAGE_FRAGMENT_BIT, pqFragMod, "main", nullptr},
+        };
+        VkPipelineVertexInputStateCreateInfo vi{};
+        vi.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        VkPipelineInputAssemblyStateCreateInfo ia{};
+        ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        VkViewport vp{0,0,(float)swapchainExt_.width,(float)swapchainExt_.height,0,1};
+        VkRect2D sc{{0,0},swapchainExt_};
+        VkPipelineViewportStateCreateInfo vs{};
+        vs.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        vs.viewportCount=1; vs.pViewports=&vp;
+        vs.scissorCount=1; vs.pScissors=&sc;
+        VkPipelineRasterizationStateCreateInfo rs{};
+        rs.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rs.lineWidth=1; rs.cullMode=VK_CULL_MODE_NONE;
+        VkPipelineMultisampleStateCreateInfo ms{};
+        ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+        VkPipelineColorBlendAttachmentState cbAtt{};
+        cbAtt.colorWriteMask = 0xF;
+        VkPipelineColorBlendStateCreateInfo cb{};
+        cb.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        cb.attachmentCount=1; cb.pAttachments=&cbAtt;
+        VkGraphicsPipelineCreateInfo pi{};
+        pi.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pi.stageCount=2; pi.pStages=stages;
+        pi.pVertexInputState=&vi; pi.pInputAssemblyState=&ia;
+        pi.pViewportState=&vs; pi.pRasterizationState=&rs;
+        pi.pMultisampleState=&ms; pi.pColorBlendState=&cb;
+        pi.layout=pqPipeLayout_; pi.renderPass=srgbRenderPass_; pi.subpass=0;
+        vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &pqPipeline_);
+    }
+
     // 销毁着色器模块
     vkDestroyShaderModule(device_, uiVertMod, nullptr);
     vkDestroyShaderModule(device_, uiFragMod, nullptr);
     vkDestroyShaderModule(device_, srgbVertMod, nullptr);
     vkDestroyShaderModule(device_, srgbFragMod, nullptr);
+    vkDestroyShaderModule(device_, pqFragMod, nullptr);
 }
 
 // ============================================================================
@@ -1340,14 +1485,88 @@ void VulkanApp::run() {
         ImGui::Text("Size: %dx%d", uiPairs_[currentUI_].width,
                     uiPairs_[currentUI_].height);
 
-        if (ImGui::Button("< Prev"))  currentUI_ = (currentUI_ - 1 + uiPairs_.size()) % uiPairs_.size();
+        if (ImGui::Button("< Prev")) {
+            currentUI_ = (currentUI_ - 1 + uiPairs_.size()) % uiPairs_.size();
+            uiLumNit_ = std::max(uiLumAvg_[currentUI_], 0.01f) * 500.0f;
+            phase1Locked_ = false;
+        }
         ImGui::SameLine();
-        if (ImGui::Button("Next >"))  currentUI_ = (currentUI_ + 1) % uiPairs_.size();
+        if (ImGui::Button("Next >")) {
+            currentUI_ = (currentUI_ + 1) % uiPairs_.size();
+            uiLumNit_ = std::max(uiLumAvg_[currentUI_], 0.01f) * 500.0f;
+            phase1Locked_ = false;
+        }
         ImGui::Spacing();
 
         ImGui::SliderFloat("UI Alpha", &uiAlpha_, 0.1f, 1.0f, "%.1f",
                            ImGuiSliderFlags_AlwaysClamp);
         ImGui::End();
+
+        // === HDR 控制面板 (右下) ===
+        if (hdrSupported_ || true) {  // 总是显示，方便观察参数
+            ImGui::SetNextWindowPos(ImVec2(10, 160), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(620, 400), ImGuiCond_FirstUseEver);
+            ImGui::Begin("HDR Controls", nullptr,
+                         ImGuiWindowFlags_AlwaysAutoResize);
+            ImGui::Text("HDR: %s", hdrSupported_ ? "ACTIVE" : "UNAVAILABLE (grey)");
+            ImGui::Separator();
+
+            // Max Display Nit
+            ImGui::PushItemWidth(120);
+            ImGui::InputFloat("Max Display Nit", &maxDisplayNit_, 100.0f, 1000.0f, "%.0f");
+            if (maxDisplayNit_ < 100.0f) maxDisplayNit_ = 100.0f;
+            ImGui::PopItemWidth();
+
+            // Background Nit
+            ImGui::PushItemWidth(500);
+            ImGui::SliderFloat("BG Nit", &bgNit_, 0.0f, maxDisplayNit_, "%.0f",
+                               ImGuiSliderFlags_AlwaysClamp);
+            ImGui::PopItemWidth();
+
+            // UI Luminance Nit
+            ImGui::PushItemWidth(500);
+            if (ImGui::SliderFloat("UI Lum Nit", &uiLumNit_, 0.0f, 4000.0f, "%.0f",
+                                   ImGuiSliderFlags_AlwaysClamp)) {
+                phase1Locked_ = false;  // 亮度变了，解锁 Phase1
+            }
+            ImGui::PopItemWidth();
+
+            // Effective Alpha
+            ImGui::PushItemWidth(500);
+            if (ImGui::SliderFloat("Eff Alpha", &effAlpha_, 0.01f, 1.0f, "%.2f",
+                                   ImGuiSliderFlags_AlwaysClamp)) {
+                // Phase 2 自动联动
+                if (phase1Locked_ && uiPairs_.size() && uiAlphaAvg_[currentUI_] > 0.001f) {
+                    float aa = std::max(uiAlphaAvg_[currentUI_], 0.001f);
+                    float la = std::max(uiLumAvg_[currentUI_], 0.01f);
+                    uiLumNit_ = (lumResLocked_ - (1.0f - effAlpha_) * bgNit_)
+                              / (effAlpha_ * aa * la);
+                    if (uiLumNit_ < 0) uiLumNit_ = 0;
+                    if (uiLumNit_ > 4000) uiLumNit_ = 4000;
+                }
+            }
+            ImGui::PopItemWidth();
+
+            // Phase 1 lock button
+            if (ImGui::Button("Lock Brightness (Phase 1)")) {
+                phase1Locked_ = true;
+                float aa = std::max(uiAlphaAvg_[currentUI_], 0.001f);
+                float la = std::max(uiLumAvg_[currentUI_], 0.01f);
+                lumResLocked_ = (1.0f - aa) * bgNit_ + aa * uiLumNit_ * la;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Unlock")) phase1Locked_ = false;
+            ImGui::Text("Locked: %s  LumRes: %.0f", phase1Locked_ ? "YES" : "no", lumResLocked_);
+
+            // 显示计算的 ratio
+            float aa = std::max(uiAlphaAvg_[currentUI_], 0.001f);
+            float la = std::max(uiLumAvg_[currentUI_], 0.01f);
+            ImGui::Text("UI_alpha_ratio = %.2f  |  UI_lum_ratio = %.2f",
+                        effAlpha_ / aa, uiLumNit_ / la);
+
+            ImGui::End();
+        }
+
         ImGui::Render();
 
         // --- 绘制 ---
@@ -1408,47 +1627,74 @@ void VulkanApp::drawFrame() {
 // 绘制录制
 // ============================================================================
 void VulkanApp::recordUIPass(VkCommandBuffer cmd, uint32_t imageIdx) {
-    VkClearValue clearVal{};
-    clearVal.color = {{ BG_GRAY, BG_GRAY, BG_GRAY, 1.0f }};
+    int uiW = uiPairs_[currentUI_].width;
+    int uiH = uiPairs_[currentUI_].height;
+    float fracX = (float)uiW / swapchainExt_.width;
+    float fracY = (float)uiH / swapchainExt_.height;
+    float offsetX = -fracX;
+    float offsetY =  fracY;
+    float scaleX  = fracX * 2.0f;
+    float scaleY  = -fracY * 2.0f;
 
+    // Push constants struct: 32 bytes
+    // bytes 0-15: vertex (offset+scale)
+    // bytes 16-19: uiAlpha
+    // bytes 20-23: bgLinear
+    struct PC { float ox, oy, sx, sy, alpha, bgLinear; float pad[2]; };
+    PC pc{};
+    pc.ox = offsetX; pc.oy = offsetY;
+    pc.sx = scaleX;  pc.sy = scaleY;
+    pc.alpha = uiAlpha_;
+
+    // Clear + draw: use DONT_CARE since we clear manually with scissor
     VkRenderPassBeginInfo rp{};
     rp.sType       = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     rp.renderPass  = uiRenderPass_;
     rp.framebuffer = uiFramebuffers_[imageIdx];
     rp.renderArea  = {{0,0}, swapchainExt_};
-    rp.clearValueCount = 1;
-    rp.pClearValues    = &clearVal;
+    rp.clearValueCount = 0;    // manual clear via vkCmdClearAttachments
     vkCmdBeginRenderPass(cmd, &rp, VK_SUBPASS_CONTENTS_INLINE);
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, uiPipeline_);
-
-    // 绑定当前 UI 的描述符
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             uiPipeLayout_, 0, 1, &uiDescSets_[currentUI_], 0, nullptr);
 
-    // 计算 UI quad 在 NDC 中的位置和大小（居中）
-    // Map unit quad [0,1] → NDC [-scale, +scale]
-    int uiW = uiPairs_[currentUI_].width;
-    int uiH = uiPairs_[currentUI_].height;
-    float fracX = (float)uiW / swapchainExt_.width;   // 屏幕占比
-    float fracY = (float)uiH / swapchainExt_.height;
-    float offsetX = -fracX;           // unit[0] → -fracX
-    float offsetY =  fracY;           // unit[0]→NDC+fracY→fb bottom
-    float scaleX  = fracX * 2.0f;     // unit[1]→NDC+fracX→fb right
-    float scaleY  = -fracY * 2.0f;    // unit[1]→NDC-fracY→fb top (Vulkan y-flip)
+    // === 左半：SDR 背景 0.18 ===
+    {
+        VkClearAttachment clearAtt{};
+        clearAtt.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        clearAtt.clearValue.color = {{ BG_GRAY, BG_GRAY, BG_GRAY, 1.0f }};
+        VkClearRect cr{};
+        cr.rect = {{0, 0}, {swapchainExt_.width/2, swapchainExt_.height}};
+        cr.layerCount = 1;
+        vkCmdClearAttachments(cmd, 1, &clearAtt, 1, &cr);
 
-    // Push constants: vec2 offset, vec2 scale, float alpha, float pad
-    struct { float ox, oy, sx, sy, alpha, pad[3]; } pc;
-    pc.ox = offsetX; pc.oy = offsetY;
-    pc.sx = scaleX;  pc.sy = scaleY;
-    pc.alpha = uiAlpha_;
-    vkCmdPushConstants(cmd, uiPipeLayout_,
-                       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                       0, sizeof(pc), &pc);
+        pc.bgLinear = BG_GRAY;  // 0.18 SDR
+        vkCmdPushConstants(cmd, uiPipeLayout_,
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
+        VkDeviceSize vbOff = 0;
+        vkCmdBindVertexBuffers(cmd, 0, 1, &quadVB_, &vbOff);
+        vkCmdDraw(cmd, 6, 1, 0, 0);
+    }
 
-    VkDeviceSize offset = 0;
-    vkCmdBindVertexBuffers(cmd, 0, 1, &quadVB_, &offset);
-    vkCmdDraw(cmd, 6, 1, 0, 0);
+    // === 右半：HDR 背景 BG_nit/500 ===
+    {
+        float hdrBg = bgNit_ / 500.0f;
+        VkClearAttachment clearAtt{};
+        clearAtt.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        clearAtt.clearValue.color = {{ hdrBg, hdrBg, hdrBg, 1.0f }};
+        VkClearRect cr{};
+        cr.rect = {{(int32_t)swapchainExt_.width/2, 0}, {swapchainExt_.width/2, swapchainExt_.height}};
+        cr.layerCount = 1;
+        vkCmdClearAttachments(cmd, 1, &clearAtt, 1, &cr);
+
+        pc.bgLinear = hdrBg;
+        vkCmdPushConstants(cmd, uiPipeLayout_,
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
+        VkDeviceSize vbOff = 0;
+        vkCmdBindVertexBuffers(cmd, 0, 1, &quadVB_, &vbOff);
+        vkCmdDraw(cmd, 6, 1, 0, 0);
+    }
 
     vkCmdEndRenderPass(cmd);
 }
@@ -1476,13 +1722,49 @@ void VulkanApp::recordSRGBPass(VkCommandBuffer cmd, uint32_t imageIdx) {
     rp.clearValueCount = 0;
     vkCmdBeginRenderPass(cmd, &rp, VK_SUBPASS_CONTENTS_INLINE);
 
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, srgbPipeline_);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            srgbPipeLayout_, 0, 1, &srgbDescSet_, 0, nullptr);
-    float encodeFlag = needsSRGBEncode_ ? 1.0f : 0.0f;
-    vkCmdPushConstants(cmd, srgbPipeLayout_, VK_SHADER_STAGE_FRAGMENT_BIT,
-                       0, sizeof(float), &encodeFlag);
-    vkCmdDraw(cmd, 3, 1, 0, 0);  // fullscreen triangle
+    int halfW = (int)swapchainExt_.width / 2;
+
+    // === 左半：SDR (sRGB 编码) ===
+    {
+        VkRect2D scissor{ {0,0}, {(uint32_t)halfW, swapchainExt_.height} };
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, srgbPipeline_);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                srgbPipeLayout_, 0, 1, &srgbDescSet_, 0, nullptr);
+        float encodeFlag = needsSRGBEncode_ ? 1.0f : 0.0f;
+        vkCmdPushConstants(cmd, srgbPipeLayout_, VK_SHADER_STAGE_FRAGMENT_BIT,
+                           0, sizeof(float), &encodeFlag);
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+    }
+
+    // === 右半：HDR (PQ 编码) 或 降级灰色 ===
+    {
+        VkRect2D scissor{ {halfW,0}, {(uint32_t)halfW, swapchainExt_.height} };
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pqPipeline_);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                pqPipeLayout_, 0, 1, &pqDescSet_, 0, nullptr);
+
+        // UI quad bounds in NDC
+        int uiW = uiPairs_.size() ? uiPairs_[currentUI_].width : 0;
+        int uiH = uiPairs_.size() ? uiPairs_[currentUI_].height : 0;
+        float fx = (float)uiW / swapchainExt_.width;
+        float fy = (float)uiH / swapchainExt_.height;
+
+        struct PQPC {
+            float wp, bg, maxNit, hdrOk;
+            float uiL, uiR, uiB, uiT;
+        } pq;
+        pq.wp    = 500.0f;
+        pq.bg    = bgNit_;
+        pq.maxNit = maxDisplayNit_;
+        pq.hdrOk = hdrSupported_ ? 1.0f : 0.0f;
+        pq.uiL   = -fx;       pq.uiR = fx;       // NDC left/right
+        pq.uiB   = -fy;       pq.uiT = fy;       // NDC bottom/top
+        vkCmdPushConstants(cmd, pqPipeLayout_, VK_SHADER_STAGE_FRAGMENT_BIT,
+                           0, sizeof(pq), &pq);
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+    }
 
     vkCmdEndRenderPass(cmd);
 }
