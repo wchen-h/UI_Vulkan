@@ -60,7 +60,6 @@ void main() {
         // HDR not supported: show dark gray right half
         outColor = vec4(0.08, 0.08, 0.08, 1.0);
     } else {
-        // [DIAG] 红=UI区域内 绿=UI区域外
-        outColor = insideUI ? vec4(1.0, 0.0, 0.0, 1.0) : vec4(0.0, 1.0, 0.0, 1.0);
+        outColor = vec4(linearToPQ(clamped), 1.0);
     }
 }

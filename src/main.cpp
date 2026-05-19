@@ -1677,20 +1677,32 @@ void VulkanApp::recordUIPass(VkCommandBuffer cmd, uint32_t imageIdx) {
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             uiPipeLayout_, 0, 1, &uiDescSets_[currentUI_], 0, nullptr);
 
-    // === 左半：SDR 背景 0.18 === [TEST: disabled]
-    // {
-    //     ... (test: skip left half, draw only right)
-    // }
-
-    // === 右半：HDR 背景 BG_nit/500 [TEST: fullscreen scissor + hardcode ox] ===
+    // === 左半：SDR 背景 0.18 ===
     {
-        VkRect2D scissor{ {0,0}, {swapchainExt_.width, swapchainExt_.height} };
+        VkRect2D scissor{ {0,0}, {swapchainExt_.width/2, swapchainExt_.height} };
         vkCmdSetScissor(cmd, 0, 1, &scissor);
-        pc.ox = 0.8f;  // [TEST] hardcode to verify push constant works
-        static int frameN = 0;
-        if (++frameN <= 3) std::cout << "[TEST] frame " << frameN
-            << " push ox=" << pc.ox << " oy=" << pc.oy
-            << " sx=" << pc.sx << " sy=" << pc.sy << std::endl;
+        pc.ox = -0.5f - fracX;  // center UI in left half (NDC center at -0.5)
+        VkClearAttachment clearAtt{};
+        clearAtt.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        clearAtt.clearValue.color = {{ BG_GRAY, BG_GRAY, BG_GRAY, 1.0f }};
+        VkClearRect cr{};
+        cr.rect = {{0, 0}, {swapchainExt_.width/2, swapchainExt_.height}};
+        cr.layerCount = 1;
+        vkCmdClearAttachments(cmd, 1, &clearAtt, 1, &cr);
+
+        pc.bgLinear = BG_GRAY;  // 0.18 SDR
+        vkCmdPushConstants(cmd, uiPipeLayout_,
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
+        VkDeviceSize vbOff = 0;
+        vkCmdBindVertexBuffers(cmd, 0, 1, &quadVB_, &vbOff);
+        vkCmdDraw(cmd, 6, 1, 0, 0);
+    }
+
+    // === 右半：HDR 背景 BG_nit/500 ===
+    {
+        VkRect2D scissor{ {(int32_t)swapchainExt_.width/2, 0}, {swapchainExt_.width/2, swapchainExt_.height} };
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+        pc.ox = 0.5f - fracX;  // center UI in right half (NDC center at +0.5)
         float hdrBg = bgNit_ / 500.0f;
         VkClearAttachment clearAtt{};
         clearAtt.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
