@@ -1473,6 +1473,20 @@ void VulkanApp::hdrImGui() {
     ImGui::SliderFloat("Max Nit", &maxNit_, 100.0f, 2000.0f, "%.0f");
     ImGui::SliderFloat("BG Nit",  &bgNit_,  0.0f, 1000.0f, "%.0f");
 
+    // PQ diagnostic: show actual 10-bit code value after clamp
+    {
+        float clampedNit = std::min(bgNit_, maxNit_);
+        float y = clampedNit / 10000.0f;
+        float yPow = powf(y, 2610.0f/16384.0f);
+        float num = 3424.0f/4096.0f + (2413.0f/128.0f) * yPow;
+        float den = 1.0f + (2392.0f/128.0f) * yPow;
+        float pqVal = powf(num/den, 2523.0f/32.0f);
+        int code10 = (int)(pqVal * 1023.0f);
+        ImGui::Text("BG PQ: %d/1023  (%.0f nit → clamped %.0f)", code10, bgNit_, clampedNit);
+        if (clampedNit < bgNit_)
+            ImGui::TextColored(ImVec4(1,0.5f,0,1), "  ^ clamped by MaxNit");
+    }
+
     // Lock: preserve uiLumNit * effAlpha product so visual brightness stays constant
     if (locked_) {
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.7f, 0.2f, 1.0f));
