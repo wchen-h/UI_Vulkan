@@ -1,134 +1,93 @@
-# UI_Vulkan — SDR & HDR UI Rendering Tool
+# UI_Vulkan — Architecture (HDR_SDR branch)
 
-GPU-accelerated UI rendering comparison tool using Vulkan 1.3.
+Dual-window Vulkan rendering tool for SDR (benchmark) vs HDR (PQ-encoded) visual comparison.
 
-## Features
-
-- **SDR Rendering** (current): Render UI elements on 18% gray background with alpha blending
-- **HDR Rendering** (planned): PQ/ST.2084 encoding, background brightness traversal, UI brightness & opacity adjustment
-- **Interactive Controls**: Dear ImGui overlay with UI selection (12 pairs), alpha slider, brightness sliders
-- **Correct Color Pipeline**: sRGB↔linear conversion, precision intermediate buffer (R16G16B16A16_SFLOAT)
-- **Cross-Platform**: Linux & Windows via CMake
-
-## Project Structure
+## Window Layout
 
 ```
-UI_Vulkan/
-├── src/main.cpp              # ~1450 lines, VulkanApp class (all logic)
-├── shaders/
-│   ├── ui.vert               # UI quad vertex shader
-│   ├── ui.frag               # UI alpha blending (linear domain)
-│   ├── srgb_convert.vert     # Fullscreen triangle (no vertex buffer)
-│   └── srgb_convert.frag     # Linear → sRGB encoding (IEC 61966-2-1)
-├── external/
-│   ├── imgui/                # Dear ImGui (docking branch, fetched via git)
-│   └── stb_image.h           # Single-header PNG loader
-├── CMakeLists.txt            # Build configuration
-└── README.md
+┌──────────────────────┐    ┌──────────────────────┐
+│  SDR Window           │    │  HDR Window           │
+│  1310×1498            │    │  1310×1498            │
+│  swapchain:           │    │  swapchain:           │
+│    B8G8R8A8_SRGB      │    │    A2B10G10R10        │
+│    SRGB_NONLINEAR     │    │    HDR10_ST2084       │
+│                       │    │    (fallback: SDR)    │
+│  ImGui:               │    │  ImGui:               │
+│    UI Select ◀▶       │    │    Max Nit            │
+│    UI Alpha           │    │    BG Nit             │
+│                       │    │    UI Lum Nit         │
+│                       │    │    Eff Alpha          │
+└──────────────────────┘    └──────────────────────┘
 ```
 
-### Render Pipeline (3 Passes)
+## Code Structure
+
+```
+src/
+├── common.h          # Shared types (UIPair, WindowContext, VulkanCore),
+│                     #   constants, utility functions
+├── texture.cpp       # Image creation, texture upload, asset loading,
+│                     #   UIPair precomputation (alphaAvg, lumAvg)
+├── window.cpp        # Per-window Vulkan init:
+│                     #   - createSwapchain (with surface format query)
+│                     #   - createRenderPasses (UI + convert + ImGui)
+│                     #   - createFramebuffers (linear intermediate +
+│                     #       swapchain views)
+│                     #   - createPipelines (UI + convert shader)
+│                     #   - recordUIPass (clear+draw, handles both SDR+HDR)
+│                     #   - recordConvertPass (sRGB or PQ)
+│                     #   - recordImGuiPass
+│                     #   - drawFrame (acquire→record→submit→present)
+├── app.h             # VulkanApp class declaration
+├── app.cpp           # Application orchestration:
+│                     #   - initCore (instance, device, HDR detection)
+│                     #   - initSDRWindow / initHDRWindow
+│                     #   - initImGui (single context, InitForOther on HDR)
+│                     #   - sdrImGui() / hdrImGui() panels
+│                     #   - run() main loop (poll→draw both windows)
+└── main.cpp          # Entry point: just creates VulkanApp and runs
+```
+
+## Render Pipeline (per window)
 
 ```
 Pass 1: UI Render → linear intermediate (R16G16B16A16_SFLOAT)
-        Clear with 18% gray, blend UI RGB × alpha + BG × (1-alpha)
+        Clear with background, blend UI via alpha-over in linear domain
+        Push constants: position, alpha, bgLinear, uiLumMult
 
-Pass 2: sRGB Convert → swapchain
-        Fullscreen triangle reads intermediate, applies sRGB encoding
+Pass 2: Convert → swapchain
+        Fullscreen triangle reads intermediate
+        SDR window: sRGB encoding (sw or hw, auto-detected)
+        HDR window: PQ/ST.2084 encoding (clamp to maxNit)
 
 Pass 3: ImGui Overlay → swapchain
-        LOAD_OP_LOAD preserves pass 2 output, draws control panel
+        LOAD_OP_LOAD, renders control panels
+```
+
+## Data Flow
+
+```
+PNG files (sRGB) ──→ stb_image ──→ VkImage (GPU)
+  RGB: VK_FORMAT_R8G8B8A8_SRGB     Alpha: VK_FORMAT_R8_UNORM
+       ↓                                    ↓
+  ui.frag: hardware sRGB→linear     linear value
+       ↓                                    ↓
+  alpha-over blend in linear domain:
+    result = UI_rgb × uiLumMult × α + bgLinear × (1-α)
+       ↓
+  linear intermediate (R16G16B16A16_SFLOAT)
+       ↓
+  convert.frag: sRGB or PQ encoding
+       ↓
+  swapchain → present
 ```
 
 ## Dependencies
 
-### Runtime
-
-| Dependency | Version | Notes |
-|-----------|---------|-------|
-| Vulkan SDK | 1.3.204+ | Headers + loader |
-| GLFW3 | 3.3.6 | Window & surface creation |
-| GLM | 0.9.9.8 | Math library (future use) |
-| Dear ImGui | docking branch | GUI controls |
-
-### Build Tools
-
-| Tool | Version | Notes |
-|------|---------|-------|
-| CMake | 3.20+ | |
-| g++ / MSVC | 11.4 / VS2022+ | C++17 |
-| glslangValidator | 11.8.0 | GLSL → SPIR-V |
-
-### Shader Compiler
-
-GLSL shaders are compiled to SPIR-V at build time using `glslangValidator`.
-On Ubuntu 22.04+, install with:
-
-```bash
-sudo apt install glslang-tools
-```
-
-## Build
-
-### Linux (Ubuntu 22.04+)
-
-```bash
-# Install dependencies
-sudo apt install libvulkan-dev vulkan-tools libglfw3-dev libglm-dev glslang-tools cmake g++
-
-# Clone & build
-git clone git@github.com:wchen-h/UI_Vulkan.git
-cd UI_Vulkan
-cmake -B build -S .
-cmake --build build -j$(nproc)
-./build/UI_Vulkan
-```
-
-### Windows
-
-```powershell
-# Requirements: Vulkan SDK 1.3+, GLFW3, CMake 3.20+, Visual Studio 2022
-
-cmake -B build -S .
-cmake --build build --config Release
-.\build\Release\UI_Vulkan.exe
-```
-
-### External Dependencies
-
-Before first build, fetch submodules or download manually:
-
-```bash
-# Dear ImGui (docking branch)
-cd external
-git clone --depth 1 --branch docking https://github.com/ocornut/imgui.git
-
-# stb_image.h
-cd external
-curl -o stb_image.h https://raw.githubusercontent.com/nothings/stb/master/stb_image.h
-```
-
-## Input Data
-
-UI images are loaded from `../python/pic/cropped_images/` relative to the project root.
-12 pairs of RGB + Alpha PNGs are auto-detected by filename convention:
-
-```
-{id}_{type}_{x}_{y}.png
- e.g.: 1_rgb_148_476.png  ←→  1_alpha_148_476.png
-```
-
-## Controls
-
-| Action | Key / UI |
-|--------|----------|
-| Next UI | Button "Next >" |
-| Previous UI | Button "< Prev" |
-| UI Alpha | Slider (0.1–1.0), arrow keys |
-| Quit | Close window / Esc |
-
-## Known Limitations
-
-- Intel UHD 630 does not support HDR swapchain (no 10-bit output)
-- HDR rendering validated via PQ-encoded pixel analysis on SDR swapchain
-- True HDR display requires external GPU with VK_EXT_hdr_metadata support
+| Package | Version | Auto-fetch? |
+|---------|---------|:-----------:|
+| Vulkan SDK | 1.3.204+ | No (pre-install) |
+| GLFW3 | 3.3.8 | Yes (FetchContent) |
+| GLM | 1.0.1 | Yes (FetchContent) |
+| Dear ImGui | docking | Bundled in external/ |
+| stb_image | latest | Bundled in external/ |

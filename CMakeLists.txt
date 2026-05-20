@@ -90,6 +90,7 @@ add_custom_target(Shaders DEPENDS ${SHADER_SPV_FILES})
 # === Main executable ===
 add_executable(${PROJECT_NAME}
     src/main.cpp
+    src/texture.cpp
     ${IMGUI_SOURCES}
 )
 add_dependencies(${PROJECT_NAME} Shaders)
