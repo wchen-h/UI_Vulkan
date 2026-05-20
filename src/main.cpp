@@ -1463,17 +1463,34 @@ void VulkanApp::hdrImGui() {
                  ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse);
     if (!uiPairs_.empty()) {
         ImGui::Text("UI: %s", uiPairs_[currentUI_].name.c_str());
+        ImGui::Text("Size: %dx%d", uiPairs_[currentUI_].width, uiPairs_[currentUI_].height);
         ImGui::Text("Avg Luminance: %.3f nit", uiPairs_[currentUI_].lumAvg * 500.0f);
     }
+    if (ImGui::Button("< Prev")) { currentUI_ = (currentUI_ + uiPairs_.size() - 1) % uiPairs_.size(); }
+    ImGui::SameLine();
+    if (ImGui::Button("Next >")) { currentUI_ = (currentUI_ + 1) % uiPairs_.size(); }
+
     ImGui::SliderFloat("Max Nit", &maxNit_, 100.0f, 2000.0f, "%.0f");
     ImGui::SliderFloat("BG Nit",  &bgNit_,  0.0f, 1000.0f, "%.0f");
-    ImGui::SliderFloat("UI Lum Nit", &uiLumNit_, 0.0f, 1000.0f, "%.0f");
 
-    if (ImGui::Button("Lock"))  { locked_ = true;  lumLock_ = uiLumNit_; }
+    // Lock: preserve uiLumNit * effAlpha product so visual brightness stays constant
+    if (locked_) {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.7f, 0.2f, 1.0f));
+        if (ImGui::Button("Unlock")) { locked_ = false; }
+        ImGui::PopStyleColor();
+        if (effAlpha_ > 0.001f)
+            uiLumNit_ = lumLock_ / effAlpha_;
+        else
+            uiLumNit_ = lumLock_;
+    } else {
+        if (ImGui::Button("Lock")) {
+            locked_ = true;
+            lumLock_ = uiLumNit_ * effAlpha_;
+        }
+    }
     ImGui::SameLine();
-    if (ImGui::Button("Unlock")){ locked_ = false; }
-    if (locked_) uiLumNit_ = lumLock_;
-
+    ImGui::Text(locked_ ? "LOCKED" : "unlocked");
+    ImGui::SliderFloat("UI Lum Nit", &uiLumNit_, 0.0f, 1000.0f, "%.0f");
     ImGui::SliderFloat("Eff. Alpha", &effAlpha_, 0.0f, 1.0f);
     ImGui::End();
 
@@ -1650,6 +1667,10 @@ void VulkanApp::run() {
 
     initImGui(sdr_, true);
     initImGui(hdr_, false);
+
+    // Give SDR window initial focus, then show both
+    glfwFocusWindow(sdr_.window);
+    if (core_.hdrSupported) glfwShowWindow(hdr_.window);
 
     if (!core_.hdrSupported) {
         glfwHideWindow(hdr_.window);
