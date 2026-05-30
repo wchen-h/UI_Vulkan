@@ -1,5 +1,6 @@
 // texture.cpp — image creation, texture upload, UI asset loading
-#include "common.h"
+#include "texture.h"
+#include "vulkan_util.h"
 #include <cstring>
 #include <cmath>
 #include <filesystem>

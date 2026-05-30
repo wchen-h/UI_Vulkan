@@ -1,24 +1,28 @@
 # ============================================================
-#  UI_Vulkan — 首次克隆后完整构建流程
-#  在新机器上逐行执行以下命令
+# UI_Vulkan — 首次在新机器上部署步骤
 # ============================================================
 
-# 1. 克隆仓库 SDR 分支
-git clone -b SDR git@github.com:wchen-h/UI_Vulkan.git
+# 1. 克隆仓库
+git clone -b HDR_SDR_split git@github.com:wchen-h/UI_Vulkan.git
 cd UI_Vulkan
 
-# 2. 拉取外部依赖
-mkdir -p external && cd external
-git clone --depth 1 --branch docking https://github.com/ocornut/imgui.git
-curl -o stb_image.h https://raw.githubusercontent.com/nothings/stb/master/stb_image.h
+# 2. 安装 Vulkan SDK (Ubuntu/Debian)
+# sudo apt install vulkan-tools libvulkan-dev
+
+# 3. 准备外部依赖
+mkdir -p external
+cd external
+git clone --depth 1 -b docking https://github.com/ocornut/imgui.git imgui
+curl -O https://raw.githubusercontent.com/nothings/stb/master/stb_image.h   # if needed
 cd ..
 
-# 3. 确认图片资源就位 (应与工程平级)
-ls ../python/pic/cropped_images/*.png | head -5
-
-# 4. 编译 (Linux)
+# 4. 构建
 cmake -B build -S .
-cmake --build build -j$(nproc)
+cmake --build build -j
 
-# 5. 运行
-./build/UI_Vulkan
+# 5. 确认素材
+# 确保 ../python/pic/cropped_images/ 存在且内有 PNG 文件
+
+# 6. 运行
+./build/UI_Vulkan_SDR    # SDR 设备上运行
+./build/UI_Vulkan_HDR    # HDR 设备上运行

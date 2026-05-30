@@ -3,12 +3,10 @@ project(UI_Vulkan VERSION 1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(FETCHCONTENT_UPDATES_DISCONNECTED ON)  # 不联网检查依赖更新
+set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
 
-# Vulkan SDK (must be pre-installed)
 find_package(Vulkan REQUIRED)
 
-# === GLFW3: auto-fetch if not installed ===
 find_package(glfw3 QUIET)
 if(NOT glfw3_FOUND)
     include(FetchContent)
@@ -20,7 +18,6 @@ if(NOT glfw3_FOUND)
     set(glfw3_FOUND TRUE)
 endif()
 
-# === glm: auto-fetch if not installed ===
 find_package(glm QUIET)
 if(NOT glm_FOUND)
     include(FetchContent)
@@ -31,7 +28,6 @@ if(NOT glm_FOUND)
     FetchContent_MakeAvailable(glm)
 endif()
 
-# === ImGui sources (bundled in external/) ===
 set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui)
 set(IMGUI_SOURCES
     ${IMGUI_DIR}/imgui.cpp
@@ -43,15 +39,13 @@ set(IMGUI_SOURCES
     ${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp
 )
 
-# === Shader compiler detection ===
-find_program(GLSLC glslc)                  # Vulkan SDK (preferred)
-find_program(GLSLC glslangValidator)       # Linux apt fallback
+find_program(GLSLC glslc)
+find_program(GLSLC glslangValidator)
 if(NOT GLSLC)
     message(FATAL_ERROR "Shader compiler not found. Install Vulkan SDK (glslc) or glslang-tools.")
 endif()
 message(STATUS "Shader compiler: ${GLSLC}")
 
-# Determine compilation flags per compiler
 if(GLSLC MATCHES "glslc")
     set(GLSL_FLAG_VERT "-fshader-stage=vert")
     set(GLSL_FLAG_FRAG "-fshader-stage=frag")
@@ -60,7 +54,6 @@ else()
     set(GLSL_FLAG_FRAG "-V")
 endif()
 
-# === Shader compilation ===
 set(SHADER_SRC_DIR  ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
 set(SHADER_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/shaders)
 file(MAKE_DIRECTORY ${SHADER_BUILD_DIR})
@@ -87,34 +80,73 @@ add_shader(pq_convert.frag   FRAG)
 
 add_custom_target(Shaders DEPENDS ${SHADER_SPV_FILES})
 
-# === Main executable ===
-add_executable(${PROJECT_NAME}
-    src/main.cpp
+set(ASSET_ABS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../python/pic/cropped_images)
+
+# === Shared static library ===
+add_library(ui_vulkan_common STATIC
+    src/vulkan_util.cpp
     src/texture.cpp
     ${IMGUI_SOURCES}
 )
-add_dependencies(${PROJECT_NAME} Shaders)
-
-target_include_directories(${PROJECT_NAME} PRIVATE
+add_dependencies(ui_vulkan_common Shaders)
+target_include_directories(ui_vulkan_common PRIVATE
     ${Vulkan_INCLUDE_DIRS}
     ${IMGUI_DIR}
     ${IMGUI_DIR}/backends
     ${CMAKE_CURRENT_SOURCE_DIR}/external
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
-
-target_link_libraries(${PROJECT_NAME} PRIVATE
+target_link_libraries(ui_vulkan_common PRIVATE
     Vulkan::Vulkan
     glfw
     glm::glm
 )
-
-if(WIN32)
-    target_compile_definitions(${PROJECT_NAME} PRIVATE NOMINMAX)
-endif()
-
-# Asset / shader paths
-set(ASSET_ABS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../python/pic/cropped_images)
-target_compile_definitions(${PROJECT_NAME} PRIVATE
+target_compile_definitions(ui_vulkan_common PRIVATE
     ASSET_DIR="${ASSET_ABS_DIR}"
     SHADER_DIR="${SHADER_BUILD_DIR}/"
 )
+if(WIN32)
+    target_compile_definitions(ui_vulkan_common PRIVATE NOMINMAX)
+endif()
+
+# === SDR executable ===
+add_executable(UI_Vulkan_SDR
+    src/sdr_app.cpp
+    src/sdr_main.cpp
+)
+add_dependencies(UI_Vulkan_SDR Shaders)
+target_link_libraries(UI_Vulkan_SDR PRIVATE ui_vulkan_common)
+target_include_directories(UI_Vulkan_SDR PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${IMGUI_DIR}
+    ${IMGUI_DIR}/backends
+    ${CMAKE_CURRENT_SOURCE_DIR}/external
+)
+target_compile_definitions(UI_Vulkan_SDR PRIVATE
+    ASSET_DIR="${ASSET_ABS_DIR}"
+    SHADER_DIR="${SHADER_BUILD_DIR}/"
+)
+if(WIN32)
+    target_compile_definitions(UI_Vulkan_SDR PRIVATE NOMINMAX)
+endif()
+
+# === HDR executable ===
+add_executable(UI_Vulkan_HDR
+    src/hdr_app.cpp
+    src/hdr_main.cpp
+)
+add_dependencies(UI_Vulkan_HDR Shaders)
+target_link_libraries(UI_Vulkan_HDR PRIVATE ui_vulkan_common)
+target_include_directories(UI_Vulkan_HDR PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${IMGUI_DIR}
+    ${IMGUI_DIR}/backends
+    ${CMAKE_CURRENT_SOURCE_DIR}/external
+)
+target_compile_definitions(UI_Vulkan_HDR PRIVATE
+    ASSET_DIR="${ASSET_ABS_DIR}"
+    SHADER_DIR="${SHADER_BUILD_DIR}/"
+)
+if(WIN32)
+    target_compile_definitions(UI_Vulkan_HDR PRIVATE NOMINMAX)
+endif()

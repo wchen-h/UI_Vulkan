@@ -1,93 +1,79 @@
-# UI_Vulkan — Architecture (HDR_SDR branch)
+# UI_Vulkan — SDR/HDR Visual Comparison Tool
 
-Dual-window Vulkan rendering tool for SDR (benchmark) vs HDR (PQ-encoded) visual comparison.
+Two separate executables for SDR and HDR visual comparison testing.
 
-## Window Layout
+## Build
 
-```
-┌──────────────────────┐    ┌──────────────────────┐
-│  SDR Window           │    │  HDR Window           │
-│  1310×1498            │    │  1310×1498            │
-│  swapchain:           │    │  swapchain:           │
-│    B8G8R8A8_SRGB      │    │    A2B10G10R10        │
-│    SRGB_NONLINEAR     │    │    HDR10_ST2084       │
-│                       │    │    (fallback: SDR)    │
-│  ImGui:               │    │  ImGui:               │
-│    UI Select ◀▶       │    │    Max Nit            │
-│    UI Alpha           │    │    BG Nit             │
-│                       │    │    UI Lum Nit         │
-│                       │    │    Eff Alpha          │
-└──────────────────────┘    └──────────────────────┘
+```bash
+cmake -B build -S .
+cmake --build build -j$(nproc)
 ```
 
-## Code Structure
+Produces two executables: `build/UI_Vulkan_SDR` and `build/UI_Vulkan_HDR`.
+
+## Run
+
+SDR device (SDR monitor):
+```bash
+./build/UI_Vulkan_SDR
+```
+
+HDR device (HDR10-capable monitor):
+```bash
+./build/UI_Vulkan_HDR
+```
+
+HDR executable will exit with an error if no HDR display is present.
+
+## Code Layout
 
 ```
 src/
-├── common.h          # Shared types (UIPair, WindowContext, VulkanCore),
-│                     #   constants, utility functions
-├── texture.cpp       # Image creation, texture upload, asset loading,
-│                     #   UIPair precomputation (alphaAvg, lumAvg)
-├── window.cpp        # Per-window Vulkan init:
-│                     #   - createSwapchain (with surface format query)
-│                     #   - createRenderPasses (UI + convert + ImGui)
-│                     #   - createFramebuffers (linear intermediate +
-│                     #       swapchain views)
-│                     #   - createPipelines (UI + convert shader)
-│                     #   - recordUIPass (clear+draw, handles both SDR+HDR)
-│                     #   - recordConvertPass (sRGB or PQ)
-│                     #   - recordImGuiPass
-│                     #   - drawFrame (acquire→record→submit→present)
-├── app.h             # VulkanApp class declaration
-├── app.cpp           # Application orchestration:
-│                     #   - initCore (instance, device, HDR detection)
-│                     #   - initSDRWindow / initHDRWindow
-│                     #   - initImGui (single context, InitForOther on HDR)
-│                     #   - sdrImGui() / hdrImGui() panels
-│                     #   - run() main loop (poll→draw both windows)
-└── main.cpp          # Entry point: just creates VulkanApp and runs
+  common.h              — shared types, constants
+  vulkan_util.h / .cpp   — shared Vulkan utilities
+  texture.h / .cpp        — asset loading
+  sdr_app.h / .cpp        — SDR app class
+  hdr_app.h / .cpp        — HDR app class
+  sdr_main.cpp            — SDR entry point
+  hdr_main.cpp            — HDR entry point
 ```
 
-## Render Pipeline (per window)
+## Render Pipeline (per-window)
 
 ```
-Pass 1: UI Render → linear intermediate (R16G16B16A16_SFLOAT)
-        Clear with background, blend UI via alpha-over in linear domain
-        Push constants: position, alpha, bgLinear, uiLumMult
-
-Pass 2: Convert → swapchain
-        Fullscreen triangle reads intermediate
-        SDR window: sRGB encoding (sw or hw, auto-detected)
-        HDR window: PQ/ST.2084 encoding (clamp to maxNit)
-
-Pass 3: ImGui Overlay → swapchain
-        LOAD_OP_LOAD, renders control panels
+Pass 1 (UI):    UI quad → linear intermediate (R16G16B16A16_SFLOAT)
+Pass 2 (Convert): sRGB (SDR) or PQ (HDR) → swapchain
+Pass 3 (ImGui):  ImGui overlay
 ```
 
-## Data Flow
+## Data Flow (HDR)
 
 ```
-PNG files (sRGB) ──→ stb_image ──→ VkImage (GPU)
-  RGB: VK_FORMAT_R8G8B8A8_SRGB     Alpha: VK_FORMAT_R8_UNORM
-       ↓                                    ↓
-  ui.frag: hardware sRGB→linear     linear value
-       ↓                                    ↓
-  alpha-over blend in linear domain:
-    result = UI_rgb × uiLumMult × α + bgLinear × (1-α)
-       ↓
-  linear intermediate (R16G16B16A16_SFLOAT)
-       ↓
-  convert.frag: sRGB or PQ encoding
-       ↓
-  swapchain → present
+PNG sRGB → stb_image → VkImage (sRGB texture) → ui.frag alpha-over blend
+→ linear intermediate → PQ OETF → swapchain
 ```
+
+## Controls
+
+| App      | Controls                                           |
+|----------|----------------------------------------------------|
+| SDR      | UI Select, Alpha (0.1–1.0)                        |
+| HDR      | Max Nit, BG Nit, UI Lum Nit, Eff. Alpha, Lock     |
 
 ## Dependencies
 
-| Package | Version | Auto-fetch? |
-|---------|---------|:-----------:|
-| Vulkan SDK | 1.3.204+ | No (pre-install) |
-| GLFW3 | 3.3.8 | Yes (FetchContent) |
-| GLM | 1.0.1 | Yes (FetchContent) |
-| Dear ImGui | docking | Bundled in external/ |
-| stb_image | latest | Bundled in external/ |
+| Package  | Version | Source       |
+|----------|---------|-------------|
+| Vulkan SDK | 1.3+   | Pre-installed |
+| GLFW3    | 3.3.8   | Auto-fetch   |
+| GLM      | 1.0.1   | Auto-fetch   |
+| Dear ImGui (docking) | docking branch | Bundled under external/imgui |
+
+## Quick Start on a Fresh Machine
+
+```bash
+git clone -b HDR_SDR_split git@github.com:wchen-h/UI_Vulkan.git
+cd UI_Vulkan
+mkdir -p external/imgui external/stb
+# see SETUP_NEW_MACHINE.txt
+``
