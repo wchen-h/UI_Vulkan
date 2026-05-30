@@ -89,8 +89,7 @@ add_library(ui_vulkan_common STATIC
     ${IMGUI_SOURCES}
 )
 add_dependencies(ui_vulkan_common Shaders)
-target_include_directories(ui_vulkan_common PRIVATE
-    ${Vulkan_INCLUDE_DIRS}
+target_include_directories(ui_vulkan_common PUBLIC
     ${IMGUI_DIR}
     ${IMGUI_DIR}/backends
     ${CMAKE_CURRENT_SOURCE_DIR}/external
@@ -118,9 +117,6 @@ add_dependencies(UI_Vulkan_SDR Shaders)
 target_link_libraries(UI_Vulkan_SDR PRIVATE ui_vulkan_common)
 target_include_directories(UI_Vulkan_SDR PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${IMGUI_DIR}
-    ${IMGUI_DIR}/backends
-    ${CMAKE_CURRENT_SOURCE_DIR}/external
 )
 target_compile_definitions(UI_Vulkan_SDR PRIVATE
     ASSET_DIR="${ASSET_ABS_DIR}"
@@ -139,9 +135,6 @@ add_dependencies(UI_Vulkan_HDR Shaders)
 target_link_libraries(UI_Vulkan_HDR PRIVATE ui_vulkan_common)
 target_include_directories(UI_Vulkan_HDR PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${IMGUI_DIR}
-    ${IMGUI_DIR}/backends
-    ${CMAKE_CURRENT_SOURCE_DIR}/external
 )
 target_compile_definitions(UI_Vulkan_HDR PRIVATE
     ASSET_DIR="${ASSET_ABS_DIR}"
