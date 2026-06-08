@@ -241,6 +241,9 @@ void initVulkanCore(VulkanCore& core, WindowContext& wc, const char* windowTitle
     std::vector<VkPhysicalDevice> phys(devCount);
     vkEnumeratePhysicalDevices(core.instance, &devCount, phys.data());
 
+    std::vector<const char*> devExts = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    if (hdr) devExts.push_back(VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME);
+
     auto checkDevExtSupport = [](VkPhysicalDevice pd, const std::vector<const char*>& reqExts) {
         uint32_t extCount;
         vkEnumerateDeviceExtensionProperties(pd, nullptr, &extCount, nullptr);
@@ -290,8 +293,6 @@ void initVulkanCore(VulkanCore& core, WindowContext& wc, const char* windowTitle
     qci.queueCount = 1;
     qci.pQueuePriorities = &qp;
 
-    std::vector<const char*> devExts = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
-    if (hdr) devExts.push_back(VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME);
     VkPhysicalDeviceFeatures feats{};
 
     VkDeviceCreateInfo dci{};
