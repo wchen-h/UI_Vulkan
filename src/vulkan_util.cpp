@@ -241,16 +241,32 @@ void initVulkanCore(VulkanCore& core, WindowContext& wc, const char* windowTitle
     std::vector<VkPhysicalDevice> phys(devCount);
     vkEnumeratePhysicalDevices(core.instance, &devCount, phys.data());
 
+    auto checkDevExtSupport = [](VkPhysicalDevice pd, const std::vector<const char*>& reqExts) {
+        uint32_t extCount;
+        vkEnumerateDeviceExtensionProperties(pd, nullptr, &extCount, nullptr);
+        std::vector<VkExtensionProperties> availExts(extCount);
+        vkEnumerateDeviceExtensionProperties(pd, nullptr, &extCount, availExts.data());
+        for (auto& req : reqExts) {
+            bool found = false;
+            for (auto& av : availExts) if (strcmp(req, av.extensionName) == 0) { found = true; break; }
+            if (!found) return false;
+        }
+        return true;
+    };
+
     core.physicalDevice = VK_NULL_HANDLE;
     for (auto pd : phys) {
+        if (!checkDevExtSupport(pd, devExts)) continue;
         VkPhysicalDeviceProperties props;
         vkGetPhysicalDeviceProperties(pd, &props);
         if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
             core.physicalDevice = pd;
             break;
         }
+        if (core.physicalDevice == VK_NULL_HANDLE) core.physicalDevice = pd;
     }
-    if (core.physicalDevice == VK_NULL_HANDLE) core.physicalDevice = phys[0];
+    if (core.physicalDevice == VK_NULL_HANDLE)
+        throw std::runtime_error("No physical device supports all required extensions");
 
     uint32_t qfCount;
     vkGetPhysicalDeviceQueueFamilyProperties(core.physicalDevice, &qfCount, nullptr);
