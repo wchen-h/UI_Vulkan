@@ -260,6 +260,15 @@ void initVulkanCore(VulkanCore& core, WindowContext& wc, const char* windowTitle
     core.physicalDevice = VK_NULL_HANDLE;
     for (auto pd : phys) {
         if (!checkDevExtSupport(pd, devExts)) continue;
+        bool hasPresent = false;
+        uint32_t qfc;
+        vkGetPhysicalDeviceQueueFamilyProperties(pd, &qfc, nullptr);
+        for (uint32_t i = 0; i < qfc; ++i) {
+            VkBool32 present = VK_FALSE;
+            vkGetPhysicalDeviceSurfaceSupportKHR(pd, i, wc.surface, &present);
+            if (present) { hasPresent = true; break; }
+        }
+        if (!hasPresent) continue;
         VkPhysicalDeviceProperties props;
         vkGetPhysicalDeviceProperties(pd, &props);
         if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
@@ -269,7 +278,7 @@ void initVulkanCore(VulkanCore& core, WindowContext& wc, const char* windowTitle
         if (core.physicalDevice == VK_NULL_HANDLE) core.physicalDevice = pd;
     }
     if (core.physicalDevice == VK_NULL_HANDLE)
-        throw std::runtime_error("No physical device supports HDR10 ST2084. Please run UI_Vulkan_SDR on SDR displays.");
+        throw std::runtime_error("No physical device supports HDR10 ST2084 and can present to surface. Please run UI_Vulkan_SDR on SDR displays.");
 
     uint32_t qfCount;
     vkGetPhysicalDeviceQueueFamilyProperties(core.physicalDevice, &qfCount, nullptr);
