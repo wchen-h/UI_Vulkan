@@ -95,7 +95,7 @@ target_include_directories(ui_vulkan_common PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/external
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
-target_link_libraries(ui_vulkan_common PRIVATE
+target_link_libraries(ui_vulkan_common PUBLIC
     Vulkan::Vulkan
     glfw
     glm::glm
