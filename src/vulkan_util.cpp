@@ -257,6 +257,39 @@ void initVulkanCore(VulkanCore& core, WindowContext& wc, const char* windowTitle
         return true;
     };
 
+    for (auto pd : phys) {
+        VkPhysicalDeviceProperties props;
+        vkGetPhysicalDeviceProperties(pd, &props);
+        std::cout << "[DIAG] GPU: " << props.deviceName << std::endl;
+        uint32_t extCount;
+        vkEnumerateDeviceExtensionProperties(pd, nullptr, &extCount, nullptr);
+        std::vector<VkExtensionProperties> availExts(extCount);
+        vkEnumerateDeviceExtensionProperties(pd, nullptr, &extCount, availExts.data());
+        bool hasSwapchainCS = false;
+        for (auto& e : availExts) {
+            if (strcmp(e.extensionName, VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME) == 0) hasSwapchainCS = true;
+        }
+        std::cout << "[DIAG]   VK_EXT_swapchain_colorspace: " << (hasSwapchainCS ? "YES" : "NO") << std::endl;
+        uint32_t fmtCount;
+        vkGetPhysicalDeviceSurfaceFormatsKHR(pd, wc.surface, &fmtCount, nullptr);
+        std::vector<VkSurfaceFormatKHR> fmts(fmtCount);
+        vkGetPhysicalDeviceSurfaceFormatsKHR(pd, wc.surface, &fmtCount, fmts.data());
+        bool hasHDRFmt = false;
+        for (auto& f : fmts) {
+            if (f.colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT) hasHDRFmt = true;
+        }
+        std::cout << "[DIAG]   HDR10 ST2084 surface format: " << (hasHDRFmt ? "YES" : "NO") << std::endl;
+        bool hasPresent = false;
+        uint32_t qfc;
+        vkGetPhysicalDeviceQueueFamilyProperties(pd, &qfc, nullptr);
+        for (uint32_t i = 0; i < qfc; ++i) {
+            VkBool32 present = VK_FALSE;
+            vkGetPhysicalDeviceSurfaceSupportKHR(pd, i, wc.surface, &present);
+            if (present) { hasPresent = true; break; }
+        }
+        std::cout << "[DIAG]   Can present to surface: " << (hasPresent ? "YES" : "NO") << std::endl;
+    }
+
     core.physicalDevice = VK_NULL_HANDLE;
     for (auto pd : phys) {
         if (!checkDevExtSupport(pd, devExts)) continue;
