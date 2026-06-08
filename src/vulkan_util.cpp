@@ -266,7 +266,7 @@ void initVulkanCore(VulkanCore& core, WindowContext& wc, const char* windowTitle
         if (core.physicalDevice == VK_NULL_HANDLE) core.physicalDevice = pd;
     }
     if (core.physicalDevice == VK_NULL_HANDLE)
-        throw std::runtime_error("No physical device supports all required extensions");
+        throw std::runtime_error("No physical device supports HDR10 ST2084. Please run UI_Vulkan_SDR on SDR displays.");
 
     uint32_t qfCount;
     vkGetPhysicalDeviceQueueFamilyProperties(core.physicalDevice, &qfCount, nullptr);
