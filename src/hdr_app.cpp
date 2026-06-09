@@ -131,7 +131,7 @@ void HDRApp::recordConvertPass(VkCommandBuffer cmd, uint32_t imageIdx) {
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                              wc_.convertPipeLayout, 0, 1, &wc_.convertDescSet, 0, nullptr);
 
-    float pc[2] = {maxNit_, 1.0f};
+    float pc[2] = {(float)maxNit_, 1.0f};
     vkCmdPushConstants(cmd, wc_.convertPipeLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, 8, pc);
 
     vkCmdDraw(cmd, 3, 1, 0, 0);
@@ -145,8 +145,9 @@ void HDRApp::hdrImGui() {
     ImGui::NewFrame();
 
     ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Once);
-    ImGui::Begin("HDR Controls", nullptr,
-                 ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse);
+    ImGui::SetNextWindowSize(ImVec2(500, 300), ImGuiCond_Once);
+    ImGui::Begin("HDR Controls", nullptr, ImGuiWindowFlags_NoCollapse);
+    ImGui::PushItemWidth(-1);
     if (!uiPairs_.empty()) {
         ImGui::Text("UI: %s", uiPairs_[currentUI_].name.c_str());
         ImGui::Text("Size: %dx%d", uiPairs_[currentUI_].width, uiPairs_[currentUI_].height);
@@ -156,20 +157,22 @@ void HDRApp::hdrImGui() {
     ImGui::SameLine();
     if (ImGui::Button("Next >")) { currentUI_ = (currentUI_ + 1) % uiPairs_.size(); }
 
-    ImGui::SliderFloat("Max Nit", &maxNit_, 100.0f, 2000.0f, "%.0f");
-    ImGui::SliderFloat("BG Nit",  &bgNit_,  0.0f, 1000.0f, "%.0f");
+    ImGui::DragInt("Max Nit", &maxNit_, 1.0f, 100, 2000);
+    ImGui::DragInt("BG Nit",  &bgNit_,  1.0f, 0, 1000);
 
     {
-        float clampedNit = std::min(bgNit_, maxNit_);
-        float y = clampedNit / 10000.0f;
-        float yPow = powf(y, 2610.0f/16384.0f);
-        float num = 3424.0f/4096.0f + (2413.0f/128.0f) * yPow;
-        float den = 1.0f + (2392.0f/128.0f) * yPow;
-        float pqVal = powf(num/den, 2523.0f/32.0f);
-        int code10 = (int)(pqVal * 1023.0f);
-        ImGui::Text("BG PQ: %d/1023  (%.0f nit -> clamped %.0f)", code10, bgNit_, clampedNit);
-        if (clampedNit < bgNit_)
-            ImGui::TextColored(ImVec4(1,0.5f,0,1), "  ^ clamped by MaxNit");
+float bgNitF = (float)bgNit_;
+    float maxNitF = (float)maxNit_;
+    float clampedNit = std::min(bgNitF, maxNitF);
+    float y = clampedNit / 10000.0f;
+    float yPow = powf(y, 2610.0f/16384.0f);
+    float num = 3424.0f/4096.0f + (2413.0f/128.0f) * yPow;
+    float den = 1.0f + (2392.0f/128.0f) * yPow;
+    float pqVal = powf(num/den, 2523.0f/32.0f);
+    int code10 = (int)(pqVal * 1023.0f);
+    ImGui::Text("BG PQ: %d/1023  (%d nit -> clamped %.0f)", code10, bgNit_, clampedNit);
+    if (clampedNit < bgNitF)
+        ImGui::TextColored(ImVec4(1,0.5f,0,1), "  ^ clamped by MaxNit");
     }
 
     if (locked_) {
@@ -188,8 +191,9 @@ void HDRApp::hdrImGui() {
     }
     ImGui::SameLine();
     ImGui::Text(locked_ ? "LOCKED" : "unlocked");
-    ImGui::SliderFloat("UI Lum Nit", &uiLumNit_, 0.0f, 1000.0f, "%.0f");
+    ImGui::DragInt("UI Lum Nit", &uiLumNit_, 1.0f, 0, 1000);
     ImGui::SliderFloat("Eff. Alpha", &effAlpha_, 0.0f, 1.0f);
+    ImGui::PopItemWidth();
     ImGui::End();
 
     ImGui::Render();
@@ -216,11 +220,11 @@ void HDRApp::drawFrame() {
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(cmd, &bi);
 
-    float bgLinear = bgNit_ / 500.0f;
+    float bgLinear = (float)bgNit_ / 500.0f;
     float uiLumMult = 1.0f;
     if (!uiPairs_.empty()) {
         float avgLum = uiPairs_[currentUI_].lumAvg;
-        if (avgLum > 0.0001f) uiLumMult = uiLumNit_ / (avgLum * 500.0f);
+        if (avgLum > 0.0001f) uiLumMult = (float)uiLumNit_ / (avgLum * 500.0f);
     }
 
     recordUIPass(wc, cmd, imageIdx, uiPairs_, currentUI_, quadVB_, bgLinear, effAlpha_, uiLumMult);

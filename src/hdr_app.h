@@ -22,7 +22,8 @@ private:
     int currentUI_ = 0;
     VkBuffer quadVB_ = VK_NULL_HANDLE;
     VkDeviceMemory quadVBMem_ = VK_NULL_HANDLE;
-    float maxNit_  = 1000.0f, bgNit_ = 500.0f, uiLumNit_ = 500.0f, effAlpha_ = 1.0f;
+    int maxNit_  = 1000, bgNit_ = 500, uiLumNit_ = 500;
+    float effAlpha_ = 1.0f;
     bool  locked_  = false;
     float lumLock_ = 0.0f;
 };
