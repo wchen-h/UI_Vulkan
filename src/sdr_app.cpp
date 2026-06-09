@@ -157,9 +157,8 @@ void SDRApp::sdrImGui() {
     ImGui::SameLine();
     if (ImGui::Button("Next >")) { currentUI_ = (currentUI_ + 1) % uiPairs_.size(); }
     ImGui::SliderFloat("Alpha", &sdrAlpha_, 0.1f, 1.0f, "%.1f");
-    ImGui::DragInt("Paper White (nit)", &paperWhite_, 1.0f, 100, 1000);
-    float bgNitActual = BG_GRAY * 500.0f * (500.0f / (float)paperWhite_);
-    ImGui::Text("BG actual: %.0f nit @ paperWhite %d", bgNitActual, paperWhite_);
+    ImGui::Text("BG: 18%% gray @ paperWhite %.0f nit = %.0f nit actual",
+                SDR_PAPER_WHITE_NIT, BG_GRAY * (500.0f / SDR_PAPER_WHITE_NIT) * SDR_PAPER_WHITE_NIT);
     ImGui::PopItemWidth();
     ImGui::End();
 
@@ -187,7 +186,7 @@ void SDRApp::drawFrame() {
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(cmd, &bi);
 
-    float bgLinear = BG_GRAY * (500.0f / (float)paperWhite_);
+    float bgLinear = BG_GRAY * (500.0f / SDR_PAPER_WHITE_NIT);
     recordUIPass(wc, cmd, imageIdx, uiPairs_, currentUI_, quadVB_, bgLinear, sdrAlpha_, 1.0f);
     recordConvertPass(cmd, imageIdx);
     recordImGuiPass(wc, cmd, imageIdx);

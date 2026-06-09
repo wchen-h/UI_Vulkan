@@ -23,5 +23,4 @@ private:
     VkBuffer quadVB_ = VK_NULL_HANDLE;
     VkDeviceMemory quadVBMem_ = VK_NULL_HANDLE;
     float sdrAlpha_ = 1.0f;
-    int paperWhite_ = 500;
 };
