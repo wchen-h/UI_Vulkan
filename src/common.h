@@ -10,8 +10,8 @@
 
 struct ImGuiContext;
 
-constexpr int   WINDOW_WIDTH  = 1310;
-constexpr int   WINDOW_HEIGHT = 1498;
+constexpr int   WINDOW_WIDTH  = 655;
+constexpr int   WINDOW_HEIGHT = 749;
 constexpr float BG_GRAY       = 0.18f;
 constexpr int   MAX_FRAMES_IN_FLIGHT = 2;
 
