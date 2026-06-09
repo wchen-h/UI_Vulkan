@@ -14,6 +14,7 @@ constexpr int   WINDOW_WIDTH  = 655;
 constexpr int   WINDOW_HEIGHT = 749;
 constexpr float BG_GRAY       = 0.18f;
 constexpr int   MAX_FRAMES_IN_FLIGHT = 2;
+constexpr float UI_PHYSICAL_WIDTH_MM = 80.0f;
 
 struct UITexture {
     VkImage        img  = VK_NULL_HANDLE;
@@ -41,6 +42,8 @@ struct WindowContext {
     VkColorSpaceKHR swapchainCS     = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
     VkExtent2D      swapchainExt    = {};
     bool            needsSRGBEncode = true;
+    int             physWidth_mm  = 0;
+    int             physHeight_mm = 0;
 
     std::vector<VkImage>     swapchainImages;
     std::vector<VkImageView> swapchainViews;

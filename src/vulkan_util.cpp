@@ -187,8 +187,15 @@ VkExtent2D chooseExtent(const VkSurfaceCapabilitiesKHR& caps, uint32_t w, uint32
 void initVulkanCore(VulkanCore& core, WindowContext& wc, const char* windowTitle, bool hdr) {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    wc.window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, windowTitle, nullptr, nullptr);
+    GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+    const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+    glfwWindowHint(GLFW_RED_BITS, mode->redBits);
+    glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
+    glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
+    glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
+    wc.window = glfwCreateWindow(mode->width, mode->height, windowTitle, monitor, nullptr);
     if (!wc.window) throw std::runtime_error("GLFW window creation failed");
+    glfwGetMonitorPhysicalSize(monitor, &wc.physWidth_mm, &wc.physHeight_mm);
 
     std::vector<const char*> instExts;
     uint32_t glfwExtCount;
@@ -917,10 +924,19 @@ void recordUIPass(WindowContext& wc, VkCommandBuffer cmd, uint32_t imageIdx,
     const auto& ui = uiPairs[currentUI];
     if (ui.uiDescSet == VK_NULL_HANDLE) return;
 
+    float scaleX, scaleY;
+    if (wc.physWidth_mm > 0 && wc.physHeight_mm > 0) {
+        float physW = UI_PHYSICAL_WIDTH_MM;
+        float physH = UI_PHYSICAL_WIDTH_MM * (float)ui.height / (float)ui.width;
+        scaleX = 2.0f * physW / (float)wc.physWidth_mm;
+        scaleY = 2.0f * physH / (float)wc.physHeight_mm;
+    } else {
+        scaleX = 2.0f * (float)ui.width  / (float)wc.swapchainExt.width;
+        scaleY = 2.0f * (float)ui.height / (float)wc.swapchainExt.height;
+    }
     float pcData[7] = {
         0.0f, 0.0f,
-        2.0f * (float)ui.width  / (float)wc.swapchainExt.width,
-        2.0f * (float)ui.height / (float)wc.swapchainExt.height,
+        scaleX, scaleY,
         alpha, bgLinear, uiLum,
     };
 
