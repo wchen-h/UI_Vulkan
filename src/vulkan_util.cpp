@@ -926,8 +926,8 @@ void recordUIPass(WindowContext& wc, VkCommandBuffer cmd, uint32_t imageIdx,
 
     float scaleX, scaleY;
     if (wc.physWidth_mm > 0 && wc.physHeight_mm > 0) {
-        float physW = UI_PHYSICAL_WIDTH_MM;
-        float physH = UI_PHYSICAL_WIDTH_MM * (float)ui.height / (float)ui.width;
+        float physW = (float)ui.width  * 25.4f / UI_REFERENCE_DPI;
+        float physH = (float)ui.height * 25.4f / UI_REFERENCE_DPI;
         scaleX = 2.0f * physW / (float)wc.physWidth_mm;
         scaleY = 2.0f * physH / (float)wc.physHeight_mm;
     } else {
