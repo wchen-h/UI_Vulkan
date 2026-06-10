@@ -144,9 +144,9 @@ void SDRApp::sdrImGui() {
     ImGui::NewFrame();
 
     ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Once);
-    ImGui::SetNextWindowSize(ImVec2(500, 300), ImGuiCond_Once);
+    ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_Once);
     ImGui::Begin("SDR Controls", nullptr, ImGuiWindowFlags_NoCollapse);
-    ImGui::PushItemWidth(-1);
+    ImGui::PushItemWidth(300);
     if (!uiPairs_.empty()) {
         ImGui::Text("UI: %s", uiPairs_[currentUI_].name.c_str());
         ImGui::Text("Size: %dx%d", uiPairs_[currentUI_].width, uiPairs_[currentUI_].height);
