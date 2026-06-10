@@ -220,11 +220,11 @@ void HDRApp::drawFrame() {
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(cmd, &bi);
 
-    float bgLinear = (float)bgNit_ / 500.0f;
+    float bgLinear = (float)bgNit_ / PAPER_WHITE_NIT;
     float uiLumMult = 1.0f;
     if (!uiPairs_.empty()) {
         float avgLum = uiPairs_[currentUI_].lumAvg;
-        if (avgLum > 0.0001f) uiLumMult = (float)uiLumNit_ / (avgLum * 500.0f);
+        if (avgLum > 0.0001f) uiLumMult = (float)uiLumNit_ / (avgLum * PAPER_WHITE_NIT);
     }
 
     recordUIPass(wc, cmd, imageIdx, uiPairs_, currentUI_, quadVB_, bgLinear, effAlpha_, uiLumMult);

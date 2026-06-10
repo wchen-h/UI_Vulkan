@@ -15,7 +15,7 @@ constexpr int   WINDOW_HEIGHT = 749;
 constexpr float BG_GRAY       = 0.18f;
 constexpr int   MAX_FRAMES_IN_FLIGHT = 2;
 constexpr float UI_REFERENCE_DPI = 96.0f;
-constexpr float SDR_PAPER_WHITE_NIT = 350.0f;
+constexpr float PAPER_WHITE_NIT = 350.0f;
 
 struct UITexture {
     VkImage        img  = VK_NULL_HANDLE;

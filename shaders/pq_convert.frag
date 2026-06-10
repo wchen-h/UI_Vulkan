@@ -31,7 +31,7 @@ vec3 linearToPQ(vec3 linearNits) {
 
 void main() {
     vec3 linear = texture(texLinear, fragUV).rgb;   // [0,1] normalized
-    vec3 nitVal = linear * 500.0;                    // convert to nit
+    vec3 nitVal = linear * 350.0;                    // convert to nit
 
     vec3 clamped = clamp(nitVal, 0.0, pc.uMaxNit);
 
