@@ -151,7 +151,7 @@ void SDRApp::sdrImGui() {
         ImGui::Text("UI: %s", uiPairs_[currentUI_].name.c_str());
         ImGui::Text("Size: %dx%d", uiPairs_[currentUI_].width, uiPairs_[currentUI_].height);
         ImGui::Text("Alpha avg: %.3f", uiPairs_[currentUI_].alphaAvg);
-        ImGui::Text("BG: 18%% gray (%.1f nit @ 500nit paper white)", BG_GRAY * 500.0f);
+        ImGui::Text("BG: 18%% gray @ %.0f nit = %.0f nit actual", PAPER_WHITE_NIT, BG_GRAY * PAPER_WHITE_NIT);
     }
     if (ImGui::Button("< Prev")) { currentUI_ = (currentUI_ + uiPairs_.size() - 1) % uiPairs_.size(); }
     ImGui::SameLine();
