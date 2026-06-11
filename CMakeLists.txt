@@ -80,7 +80,7 @@ add_shader(pq_convert.frag   FRAG)
 
 add_custom_target(Shaders DEPENDS ${SHADER_SPV_FILES})
 
-set(ASSET_ABS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../python/pic/cropped_images)
+set(ASSET_ABS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/pic/cropped_images)
 
 # === Shared static library ===
 add_library(ui_vulkan_common STATIC
