@@ -179,14 +179,15 @@ float bgNitF = (float)bgNit_;
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.7f, 0.2f, 1.0f));
         if (ImGui::Button("Unlock")) { locked_ = false; }
         ImGui::PopStyleColor();
-        if (effAlpha_ > 0.001f)
-            uiLumNit_ = lumLock_ / effAlpha_;
+        float effAlphaF = effAlpha_;
+        if (effAlphaF > 0.001f)
+            uiLumNit_ = (int)((lumLock_ - bgNit_ * (1.0f - effAlphaF)) / effAlphaF);
         else
-            uiLumNit_ = lumLock_;
+            uiLumNit_ = (int)lumLock_;
     } else {
         if (ImGui::Button("Lock")) {
             locked_ = true;
-            lumLock_ = uiLumNit_ * effAlpha_;
+            lumLock_ = (float)uiLumNit_ * effAlpha_ + (float)bgNit_ * (1.0f - effAlpha_);
         }
     }
     ImGui::SameLine();
