@@ -187,7 +187,7 @@ void SDRApp::drawFrame() {
     vkBeginCommandBuffer(cmd, &bi);
 
     float bgLinear = BG_GRAY;
-    recordUIPass(wc, cmd, imageIdx, uiPairs_, currentUI_, quadVB_, bgLinear, sdrAlpha_, 1.0f);
+    recordUIPass(wc, cmd, imageIdx, uiPairs_, currentUI_, quadVB_, bgLinear, sdrAlpha_, 1.0f, 1.0f);
     recordConvertPass(cmd, imageIdx);
     recordImGuiPass(wc, cmd, imageIdx);
 

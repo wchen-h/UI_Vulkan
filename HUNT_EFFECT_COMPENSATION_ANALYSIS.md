@@ -379,7 +379,7 @@ Lock 保持 L_blended = L_target 恒定。从 Step 2，blended 的全部 chromin
 问题：线性 RGB 的 chrominance 变化如何传递到 CIECAM02 的 a, b？
 
 - 在线性变换阶段（RGB→XYZ→HPE）：chrominance 变化完全保留，按 uiLumMult·α 缩放
-- 在非线性压缩阶段：无法精确分解，但方向性明确——stimulus 的 chrominance 增大时，压缩函数输出中不同 cone type 的差异增大 → a, b 增大
+- 在非线性压缩阶段：无法精确分解，但方向性明确——stimulus 的 chrominance 增大时，各锥体通道在压缩函数中的输入差异增大，经非线性压缩后对立色信号 $a, b$ 的绝对值通常增大（取决于具体刺激）
 
 对于小变化（3-5% Hunt Effect 补偿范围），压缩函数在局部可近似为线性，a, b 的变化大致与 uiLumMult·α 成正比。精确比例系数取决于压缩函数在当前工作点的局部斜率，该斜率由 F_L 和绝对信号水平决定。
 
@@ -483,7 +483,7 @@ CIECAM02 中 C 的计算依赖两个与亮度水平相关的因素：
 
 2. $\sqrt{J/100}$：$J$ 是相对属性，近似不随亮度水平变化（因为 $A/A_w$ 的比值近似不变）。所以 $\sqrt{J/100}$ 在 SDR 和 HDR 之间近似相同。
 
-因此：**Hunt Effect 的根本驱动力是 $L_A \to F_L \to$ 锥体压缩函数的斜率变化**，这是观视条件参数，无法通过改变刺激参数（uiLumNit, effAlpha）来消除。
+因此：**Hunt Effect 的机制是 $L_A \to F_L \to M = C \cdot F_L^{0.25}$ 中 $F_L^{0.25}$ 的直接放大**（$C$ 本身近似不变，因为 $t$ 的分子分母同步变化抵消）。$F_L$ 由观视环境决定，无法通过改变刺激参数（uiLumNit, effAlpha）来消除。
 
 即使我们让 HDR UI 的物理亮度与 SDR UI 完全相同，CIECAM02 仍然预测 $M_{\text{hdr}} > M_{\text{sdr}}$，因为 $F_{L,\text{HDR}} \approx 0.86 > F_{L,\text{SDR}} \approx 0.69$，导致 colorfulness 更高。
 
@@ -615,7 +615,7 @@ $$
 \text{chromaScale} \approx 0.947^{1/0.9} \approx 0.947^{1.11} \approx 0.94
 $$
 
-交叉验证：Kawashima & Ohno (CIE x047:2020 OP01) 报告 10:1 照度比下 perceived chroma 差 8-15%。本项目 F_L 比 1.24:1（远小于 10:1），推算 perceived chroma 差约 4-6%，与上述 M 的 5.6% 分析一致。
+交叉验证：Kawashima & Ohno (CIE x047:2020 OP01) 报告 10:1 照度比下 perceived chroma（对应 CIECAM02 的 $M$，即 colorfulness）差 8-15%。本项目 F_L 比 1.24:1（远小于 10:1），推算 perceived chroma 差约 4-6%，与上述 M 的 5.6% 分析一致。
 
 初始参考值：**chromaScale ≈ 0.93~0.96**。
 

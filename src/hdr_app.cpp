@@ -194,6 +194,7 @@ float bgNitF = (float)bgNit_;
     ImGui::Text(locked_ ? "LOCKED" : "unlocked");
     ImGui::DragInt("UI Lum Nit", &uiLumNit_, 1.0f, 0, 1000);
     ImGui::SliderFloat("Eff. Alpha", &effAlpha_, 0.0f, 1.0f);
+    ImGui::DragFloat("Chroma Scale", &chromaScale_, 0.001f, 0.0f, 2.0f, "%.3f");
     ImGui::PopItemWidth();
     ImGui::End();
 
@@ -228,7 +229,7 @@ void HDRApp::drawFrame() {
         if (avgLum > 0.0001f) uiLumMult = (float)uiLumNit_ / (avgLum * PAPER_WHITE_NIT);
     }
 
-    recordUIPass(wc, cmd, imageIdx, uiPairs_, currentUI_, quadVB_, bgLinear, effAlpha_, uiLumMult);
+    recordUIPass(wc, cmd, imageIdx, uiPairs_, currentUI_, quadVB_, bgLinear, effAlpha_, uiLumMult, chromaScale_);
     recordConvertPass(cmd, imageIdx);
     recordImGuiPass(wc, cmd, imageIdx);
 

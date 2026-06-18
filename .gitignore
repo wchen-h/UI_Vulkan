@@ -18,3 +18,9 @@ external/stb_image.h
 .DS_Store
 Thumbs.db
 
+# Work logs and generated files (local, not tracked)
+WORK_LOG_*.md
+HUNT_EFFECT_COMPENSATION_ANALYSIS.md
+generate_ppt.py
+presentation_*.pptx
+

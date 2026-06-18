@@ -712,7 +712,7 @@ void createUIPipeline(WindowContext& wc, VulkanCore& core, VkBuffer quadVB) {
 
     VkPushConstantRange pcRange{};
     pcRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-    pcRange.offset = 0; pcRange.size = 28;
+    pcRange.offset = 0; pcRange.size = 32;
 
     VkDescriptorSetLayout layouts[1] = {core.uiDescLayout};
     VkPipelineLayoutCreateInfo plci{};
@@ -918,8 +918,9 @@ void createQuadBuffer(VulkanCore& core, VkBuffer& buf, VkDeviceMemory& mem) {
 }
 
 void recordUIPass(WindowContext& wc, VkCommandBuffer cmd, uint32_t imageIdx,
-                  const std::vector<UIPair>& uiPairs, int currentUI,
-                  VkBuffer quadVB, float bgLinear, float alpha, float uiLum) {
+                   const std::vector<UIPair>& uiPairs, int currentUI,
+                   VkBuffer quadVB, float bgLinear, float alpha, float uiLum,
+                   float chromaScale) {
     if (uiPairs.empty()) return;
     const auto& ui = uiPairs[currentUI];
     if (ui.uiDescSet == VK_NULL_HANDLE) return;
@@ -934,10 +935,11 @@ void recordUIPass(WindowContext& wc, VkCommandBuffer cmd, uint32_t imageIdx,
         scaleX = 2.0f * (float)ui.width  / (float)wc.swapchainExt.width;
         scaleY = 2.0f * (float)ui.height / (float)wc.swapchainExt.height;
     }
-    float pcData[7] = {
+    float pcData[8] = {
         0.0f, 0.0f,
         scaleX, scaleY,
         alpha, bgLinear, uiLum,
+        chromaScale,
     };
 
     VkClearValue clearVal{};
@@ -957,7 +959,7 @@ void recordUIPass(WindowContext& wc, VkCommandBuffer cmd, uint32_t imageIdx,
                              wc.uiPipeLayout, 0, 1, &ui.uiDescSet, 0, nullptr);
     vkCmdPushConstants(cmd, wc.uiPipeLayout,
                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                       0, 28, pcData);
+                        0, 32, pcData);
 
     VkDeviceSize offsets[1] = {0};
     vkCmdBindVertexBuffers(cmd, 0, 1, &quadVB, offsets);

@@ -12,6 +12,7 @@ layout(push_constant) uniform FragPush {
     layout(offset = 16) float uiAlphaMultiplier; // bytes 16-19
     layout(offset = 20) float bgLinear;           // bytes 20-23
     layout(offset = 24) float uiLumMult;          // bytes 24-27 (SDR=1.0, HDR=uiLumRatio)
+    layout(offset = 28) float chromaScale;        // bytes 28-31 (SDR=1.0, HDR=adjustable)
 } fpc;
 
 layout(location = 0) in vec2 fragUV;
@@ -25,7 +26,11 @@ void main() {
     // Apply brightness multiplier to UI
     vec3 uiAdj = uiRGB * fpc.uiLumMult;
 
-    // Alpha-over blend in linear domain
     vec3 blended = uiAdj * uiAlpha + fpc.bgLinear * (1.0 - uiAlpha);
-    outColor = vec4(blended, 1.0);
+
+    float lum = 0.2126 * blended.r + 0.7152 * blended.g + 0.0722 * blended.b;
+    vec3 gray = vec3(lum);
+    vec3 result = gray + fpc.chromaScale * (blended - gray);
+
+    outColor = vec4(result, 1.0);
 }
