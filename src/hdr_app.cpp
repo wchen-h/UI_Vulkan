@@ -31,10 +31,11 @@ HDRApp::~HDRApp() {
     if (core_.uiDescPool)  vkDestroyDescriptorPool(core_.device, core_.uiDescPool, nullptr);
     if (core_.uiDescLayout)vkDestroyDescriptorSetLayout(core_.device, core_.uiDescLayout, nullptr);
     if (core_.texSampler)   vkDestroySampler(core_.device, core_.texSampler, nullptr);
-    if (core_.texSamplerLin)vkDestroySampler(core_.device, core_.texSamplerLin, nullptr);
     if (core_.sharedCmdPool)vkDestroyCommandPool(core_.device, core_.sharedCmdPool, nullptr);
 
     vkDestroyDevice(core_.device, nullptr);
+    if (core_.debugMessenger)
+        DestroyDebugUtilsMessengerEXT(core_.instance, core_.debugMessenger, nullptr);
     vkDestroyInstance(core_.instance, nullptr);
     glfwTerminate();
 }
@@ -105,7 +106,7 @@ void HDRApp::init() {
     createUIPipeline(wc_, core_, quadVB_);
     createConvertPipeline(wc_, core_,
                           SHADER_DIR "srgb_convert.vert.spv",
-                          SHADER_DIR "pq_convert.frag.spv", 8);
+                          SHADER_DIR "pq_convert.frag.spv", 4);
     createCmdBuffersAndSync(wc_, core_);
     initImGuiForWindow(wc_, core_);
 
@@ -131,8 +132,8 @@ void HDRApp::recordConvertPass(VkCommandBuffer cmd, uint32_t imageIdx) {
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                              wc_.convertPipeLayout, 0, 1, &wc_.convertDescSet, 0, nullptr);
 
-    float pc[2] = {(float)maxNit_, 1.0f};
-    vkCmdPushConstants(cmd, wc_.convertPipeLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, 8, pc);
+    float pc = (float)maxNit_;
+    vkCmdPushConstants(cmd, wc_.convertPipeLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4, &pc);
 
     vkCmdDraw(cmd, 3, 1, 0, 0);
     vkCmdEndRenderPass(cmd);
@@ -151,14 +152,16 @@ void HDRApp::hdrImGui() {
     if (!uiPairs_.empty()) {
         ImGui::Text("UI: %s", uiPairs_[currentUI_].name.c_str());
         ImGui::Text("Size: %dx%d", uiPairs_[currentUI_].width, uiPairs_[currentUI_].height);
-        ImGui::Text("Avg Luminance: %.3f nit", uiPairs_[currentUI_].lumAvg * 500.0f);
+        ImGui::Text("Avg Luminance: %.3f nit", uiPairs_[currentUI_].lumAvg * PAPER_WHITE_NIT);
     }
     if (ImGui::Button("< Prev")) { currentUI_ = (currentUI_ + uiPairs_.size() - 1) % uiPairs_.size(); }
     ImGui::SameLine();
     if (ImGui::Button("Next >")) { currentUI_ = (currentUI_ + 1) % uiPairs_.size(); }
 
     ImGui::DragInt("Max Nit", &maxNit_, 1.0f, 100, 2000);
+    ImGui::BeginDisabled(locked_);
     ImGui::DragInt("BG Nit",  &bgNit_,  1.0f, 0, 1000);
+    ImGui::EndDisabled();
 
     {
 float bgNitF = (float)bgNit_;
@@ -181,18 +184,18 @@ float bgNitF = (float)bgNit_;
         ImGui::PopStyleColor();
         float effAlphaF = effAlpha_;
         if (effAlphaF > 0.001f)
-            uiLumNit_ = (int)((lumLock_ - bgNit_ * (1.0f - effAlphaF)) / effAlphaF);
+            uiLumNit_ = (lumLock_ - (float)bgNit_ * (1.0f - effAlphaF)) / effAlphaF;
         else
-            uiLumNit_ = (int)lumLock_;
+            uiLumNit_ = lumLock_;
     } else {
         if (ImGui::Button("Lock")) {
             locked_ = true;
-            lumLock_ = (float)uiLumNit_ * effAlpha_ + (float)bgNit_ * (1.0f - effAlpha_);
+            lumLock_ = uiLumNit_ * effAlpha_ + (float)bgNit_ * (1.0f - effAlpha_);
         }
     }
     ImGui::SameLine();
     ImGui::Text(locked_ ? "LOCKED" : "unlocked");
-    ImGui::DragInt("UI Lum Nit", &uiLumNit_, 1.0f, 0, 1000);
+    ImGui::DragFloat("UI Lum Nit", &uiLumNit_, 1.0f, 0.0f, 2000.0f, "%.0f");
     ImGui::SliderFloat("Eff. Alpha", &effAlpha_, 0.0f, 1.0f);
     ImGui::DragFloat("Chroma Scale", &chromaScale_, 0.001f, 0.0f, 2.0f, "%.3f");
     ImGui::PopItemWidth();
@@ -226,7 +229,7 @@ void HDRApp::drawFrame() {
     float uiLumMult = 1.0f;
     if (!uiPairs_.empty()) {
         float avgLum = uiPairs_[currentUI_].lumAvg;
-        if (avgLum > 0.0001f) uiLumMult = (float)uiLumNit_ / (avgLum * PAPER_WHITE_NIT);
+        if (avgLum > 0.0001f) uiLumMult = uiLumNit_ / (avgLum * PAPER_WHITE_NIT);
     }
 
     recordUIPass(wc, cmd, imageIdx, uiPairs_, currentUI_, quadVB_, bgLinear, effAlpha_, uiLumMult, chromaScale_);

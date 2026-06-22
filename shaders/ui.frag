@@ -1,6 +1,6 @@
 // UI fragment shader (render to linear intermediate)
 // Blends UI RGB + alpha over background in LINEAR domain
-// Used by both SDR (bg=0.18) and HDR (bg=BG_nit/500.0) paths.
+// Used by both SDR (bg=0.18) and HDR (bg=BG_nit/350.0) paths.
 
 #version 450
 

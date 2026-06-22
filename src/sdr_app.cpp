@@ -29,10 +29,11 @@ SDRApp::~SDRApp() {
     if (core_.uiDescPool)  vkDestroyDescriptorPool(core_.device, core_.uiDescPool, nullptr);
     if (core_.uiDescLayout)vkDestroyDescriptorSetLayout(core_.device, core_.uiDescLayout, nullptr);
     if (core_.texSampler)   vkDestroySampler(core_.device, core_.texSampler, nullptr);
-    if (core_.texSamplerLin)vkDestroySampler(core_.device, core_.texSamplerLin, nullptr);
     if (core_.sharedCmdPool)vkDestroyCommandPool(core_.device, core_.sharedCmdPool, nullptr);
 
     vkDestroyDevice(core_.device, nullptr);
+    if (core_.debugMessenger)
+        DestroyDebugUtilsMessengerEXT(core_.instance, core_.debugMessenger, nullptr);
     vkDestroyInstance(core_.instance, nullptr);
     glfwTerminate();
 }

@@ -92,6 +92,6 @@ struct VulkanCore {
     VkDescriptorPool uiDescPool = VK_NULL_HANDLE;
     VkDescriptorSetLayout uiDescLayout = VK_NULL_HANDLE;
     VkSampler        texSampler     = VK_NULL_HANDLE;
-    VkSampler        texSamplerLin  = VK_NULL_HANDLE;
     bool             hdrSupported = false;
+    VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
 };

@@ -1,6 +1,7 @@
 // HDR PQ (ST.2084) encoding fragment shader
-// Reads linear intermediate (normalized, 1.0 = 500 nit white point),
-// converts to absolute nit, applies ST.2084 PQ OETF, outputs to swapchain.
+// Reads linear intermediate (BT.709 primaries, normalized, 1.0 = 350 nit paper white),
+// converts primaries BT.709 -> BT.2020 (HDR10), scales to absolute nit, applies
+// ST.2084 PQ OETF, outputs to swapchain.
 
 #version 450
 
@@ -8,8 +9,10 @@ layout(binding = 0) uniform sampler2D texLinear;  // linear intermediate (R16G16
 
 layout(push_constant) uniform PQPush {
     float uMaxNit;        // clamp ceiling
-    float uHDRSupported;  // 1.0 = HDR active, 0.0 = fallback (gray)
 } pc;
+
+// Must match common.h PAPER_WHITE_NIT. Linear 1.0 == this many nit.
+const float PAPER_WHITE_NIT = 350.0;
 
 layout(location = 0) in vec2 fragUV;
 layout(location = 0) out vec4 outColor;
@@ -29,15 +32,18 @@ vec3 linearToPQ(vec3 linearNits) {
     return pow(num / den, vec3(m2));
 }
 
+// BT.709 -> BT.2020 primaries (linear). Rows sum to 1.0, all entries >= 0:
+// BT.709 gamut is a subset of BT.2020, so [0,1] BT.709 maps to in-gamut [0,1] BT.2020.
+// GLSL mat3 is column-major: columns below are input R, G, B -> output R, G, B.
+const mat3 BT709_TO_BT2020 = mat3(
+    0.627404, 0.069097, 0.016391,
+    0.329283, 0.919540, 0.088013,
+    0.043313, 0.011362, 0.895595);
+
 void main() {
-    vec3 linear = texture(texLinear, fragUV).rgb;   // [0,1] normalized
-    vec3 nitVal = linear * 350.0;                    // convert to nit
-
-    vec3 clamped = clamp(nitVal, 0.0, pc.uMaxNit);
-
-    if (pc.uHDRSupported < 0.5) {
-        outColor = vec4(0.08, 0.08, 0.08, 1.0);
-    } else {
-        outColor = vec4(linearToPQ(clamped), 1.0);
-    }
+    vec3 linear709  = texture(texLinear, fragUV).rgb;     // [0,1] BT.709-linear
+    vec3 linear2020 = BT709_TO_BT2020 * linear709;        // [0,1] BT.2020-linear
+    vec3 nitVal     = linear2020 * PAPER_WHITE_NIT;       // convert to nit
+    vec3 clamped    = clamp(nitVal, 0.0, pc.uMaxNit);
+    outColor = vec4(linearToPQ(clamped), 1.0);
 }

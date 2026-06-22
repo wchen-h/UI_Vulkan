@@ -237,7 +237,7 @@ void initVulkanCore(VulkanCore& core, WindowContext& wc, const char* windowTitle
 
     VkDebugUtilsMessengerEXT dbgMsg;
     if (kEnableValidation && checkValidationLayerSupport())
-        CreateDebugUtilsMessengerEXT(core.instance, &dbgCI, nullptr, &dbgMsg);
+        CreateDebugUtilsMessengerEXT(core.instance, &dbgCI, nullptr, &core.debugMessenger);
 
     if (glfwCreateWindowSurface(core.instance, wc.window, nullptr, &wc.surface) != VK_SUCCESS)
         throw std::runtime_error("Surface creation failed");
@@ -373,10 +373,6 @@ std::vector<const char*> devExts;
     sci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     sci.maxLod = 1.0f;
     vkCreateSampler(core.device, &sci, nullptr, &core.texSampler);
-
-    sci.magFilter = VK_FILTER_LINEAR;
-    sci.minFilter = VK_FILTER_LINEAR;
-    vkCreateSampler(core.device, &sci, nullptr, &core.texSamplerLin);
 
     VkDescriptorSetLayoutBinding uiBindings[2] = {};
     uiBindings[0].binding = 0;
