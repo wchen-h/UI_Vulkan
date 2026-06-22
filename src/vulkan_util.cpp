@@ -451,6 +451,101 @@ void initWindowSwapchain(WindowContext& wc, VulkanCore& core) {
                      VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
 
+void recreateSwapchain(WindowContext& wc, VulkanCore& core) {
+    vkDeviceWaitIdle(core.device);
+
+    // Window minimized -> extent 0: skip recreation, retry next frame.
+    VkSurfaceCapabilitiesKHR caps;
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(core.physicalDevice, wc.surface, &caps);
+    if (caps.currentExtent.width == 0 || caps.currentExtent.height == 0) return;
+
+    VkExtent2D newExtent = chooseExtent(caps, WINDOW_WIDTH, WINDOW_HEIGHT);
+    bool sizeChanged = (newExtent.width  != wc.swapchainExt.width ||
+                        newExtent.height != wc.swapchainExt.height);
+
+    // Destroy swapchain-dependent resources (framebuffers + views + swapchain).
+    for (auto fb : wc.imguiFramebuffers)   vkDestroyFramebuffer(core.device, fb, nullptr);
+    for (auto fb : wc.convertFramebuffers) vkDestroyFramebuffer(core.device, fb, nullptr);
+    for (auto fb : wc.uiFramebuffers)      vkDestroyFramebuffer(core.device, fb, nullptr);
+    wc.imguiFramebuffers.clear(); wc.convertFramebuffers.clear(); wc.uiFramebuffers.clear();
+    for (auto v : wc.swapchainViews) vkDestroyImageView(core.device, v, nullptr);
+    wc.swapchainViews.clear();
+
+    // Linear intermediate only needs recreation when extent changes.
+    if (sizeChanged) {
+        if (wc.linearView) vkDestroyImageView(core.device, wc.linearView, nullptr);
+        if (wc.linearImg)  vkDestroyImage(core.device, wc.linearImg, nullptr);
+        if (wc.linearMem)  vkFreeMemory(core.device, wc.linearMem, nullptr);
+        wc.linearView = VK_NULL_HANDLE;
+        wc.linearImg  = VK_NULL_HANDLE;
+        wc.linearMem  = VK_NULL_HANDLE;
+    }
+
+    if (wc.swapchain) vkDestroySwapchainKHR(core.device, wc.swapchain, nullptr);
+    wc.swapchain = VK_NULL_HANDLE;
+
+    // Recreate swapchain + views (same params as initWindowSwapchain).
+    uint32_t imageCount = std::max(caps.minImageCount + 1, 2u);
+    if (caps.maxImageCount > 0) imageCount = std::min(imageCount, caps.maxImageCount);
+
+    VkSwapchainCreateInfoKHR sci{};
+    sci.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+    sci.surface = wc.surface;
+    sci.minImageCount = imageCount;
+    sci.imageFormat = wc.swapchainFmt;
+    sci.imageColorSpace = wc.swapchainCS;
+    sci.imageExtent = newExtent;
+    sci.imageArrayLayers = 1;
+    sci.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    sci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    sci.preTransform = caps.currentTransform;
+    sci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    sci.presentMode = choosePresentMode(core.physicalDevice, wc.surface);
+    sci.clipped = VK_TRUE;
+    if (vkCreateSwapchainKHR(core.device, &sci, nullptr, &wc.swapchain) != VK_SUCCESS)
+        throw std::runtime_error("Swapchain recreation failed");
+
+    uint32_t scCount;
+    vkGetSwapchainImagesKHR(core.device, wc.swapchain, &scCount, nullptr);
+    wc.swapchainImages.resize(scCount);
+    vkGetSwapchainImagesKHR(core.device, wc.swapchain, &scCount, wc.swapchainImages.data());
+
+    wc.swapchainViews.resize(scCount);
+    for (uint32_t i = 0; i < scCount; ++i)
+        wc.swapchainViews[i] = createImageView(core.device, wc.swapchainImages[i],
+                                                wc.swapchainFmt, VK_IMAGE_ASPECT_COLOR_BIT);
+
+    wc.swapchainExt = newExtent;
+
+    if (sizeChanged) {
+        createImage(core.device, core.physicalDevice, newExtent.width, newExtent.height,
+                    VK_FORMAT_R16G16B16A16_SFLOAT,
+                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                    wc.linearImg, wc.linearMem);
+        wc.linearView = createImageView(core.device, wc.linearImg,
+                                         VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT);
+        transitionLayout(core.device, core.sharedCmdPool, core.graphicsQueue,
+                         wc.linearImg, VK_FORMAT_R16G16B16A16_SFLOAT,
+                         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        // Re-bind the convert descriptor to the new linear view.
+        VkDescriptorImageInfo ii{};
+        ii.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        ii.imageView = wc.linearView;
+        ii.sampler = wc.convertSampler;
+        VkWriteDescriptorSet w{};
+        w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        w.dstSet = wc.convertDescSet;
+        w.dstBinding = 0;
+        w.descriptorCount = 1;
+        w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        w.pImageInfo = &ii;
+        vkUpdateDescriptorSets(core.device, 1, &w, 0, nullptr);
+    }
+
+    // Rebuild all three framebuffer sets against the new views/extent.
+    createFramebuffers(wc, core.device);
+}
+
 void createRenderPasses(WindowContext& wc, VkDevice dev) {
     {
         VkAttachmentDescription att{};

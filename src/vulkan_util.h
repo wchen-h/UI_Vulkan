@@ -31,6 +31,7 @@ VkExtent2D chooseExtent(const VkSurfaceCapabilitiesKHR& caps, uint32_t w, uint32
 
 void initVulkanCore(VulkanCore& core, WindowContext& wc, const char* windowTitle, bool hdr);
 void initWindowSwapchain(WindowContext& wc, VulkanCore& core);
+void recreateSwapchain(WindowContext& wc, VulkanCore& core);
 void createRenderPasses(WindowContext& wc, VkDevice dev);
 void createFramebuffers(WindowContext& wc, VkDevice dev);
 void createConvertDescriptor(WindowContext& wc, VulkanCore& core);

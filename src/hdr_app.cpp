@@ -214,7 +214,8 @@ void HDRApp::drawFrame() {
     VkResult r = vkAcquireNextImageKHR(core_.device, wc.swapchain, UINT64_MAX,
                                         wc.imageAvail[wc.currentFrame],
                                         VK_NULL_HANDLE, &imageIdx);
-    if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR) return;
+    if (r == VK_ERROR_OUT_OF_DATE_KHR) { recreateSwapchain(wc, core_); return; }
+    // VK_SUBOPTIMAL_KHR: image acquired, render this frame then recreate next frame.
 
     vkResetFences(core_.device, 1, &wc.inFlight[wc.currentFrame]);
 
@@ -259,7 +260,8 @@ void HDRApp::drawFrame() {
     pi.pSwapchains = &wc.swapchain;
     pi.pImageIndices = &imageIdx;
 
-    vkQueuePresentKHR(core_.graphicsQueue, &pi);
+    VkResult pr = vkQueuePresentKHR(core_.graphicsQueue, &pi);
+    if (pr == VK_ERROR_OUT_OF_DATE_KHR || pr == VK_SUBOPTIMAL_KHR) recreateSwapchain(wc, core_);
 
     wc.currentFrame = (wc.currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 }
