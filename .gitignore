@@ -1,5 +1,6 @@
 # Build output
 build/
+.deps/
 
 # External dependencies (fetched separately)
 external/imgui/
