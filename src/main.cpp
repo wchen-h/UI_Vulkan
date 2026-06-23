@@ -1471,7 +1471,7 @@ void VulkanApp::hdrImGui() {
     if (ImGui::Button("Next >")) { currentUI_ = (currentUI_ + 1) % uiPairs_.size(); }
 
     ImGui::SliderFloat("Max Nit", &maxNit_, 100.0f, 2000.0f, "%.0f");
-    ImGui::SliderFloat("BG Nit",  &bgNit_,  0.0f, 1000.0f, "%.0f");
+    ImGui::SliderFloat("BG Nit",  &bgNit_,  0.0f, maxNit_, "%.0f");
 
     // PQ diagnostic: show actual 10-bit code value after clamp
     {

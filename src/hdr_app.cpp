@@ -160,7 +160,7 @@ void HDRApp::hdrImGui() {
 
     ImGui::DragInt("Max Nit", &maxNit_, 1.0f, 100, 2000);
     ImGui::BeginDisabled(locked_);
-    ImGui::DragInt("BG Nit",  &bgNit_,  1.0f, 0, 1000);
+    ImGui::DragInt("BG Nit",  &bgNit_,  1.0f, 0, maxNit_);
     ImGui::EndDisabled();
 
     {
