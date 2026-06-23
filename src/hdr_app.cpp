@@ -129,6 +129,14 @@ void HDRApp::recordConvertPass(VkCommandBuffer cmd, uint32_t imageIdx) {
 
     vkCmdBeginRenderPass(cmd, &rpbi, VK_SUBPASS_CONTENTS_INLINE);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, wc_.convertPipeline);
+    VkViewport vp{};
+    vp.x = 0; vp.y = 0;
+    vp.width  = (float)wc_.swapchainExt.width;
+    vp.height = (float)wc_.swapchainExt.height;
+    vp.minDepth = 0.f; vp.maxDepth = 1.f;
+    vkCmdSetViewport(cmd, 0, 1, &vp);
+    VkRect2D sc{{0,0}, wc_.swapchainExt};
+    vkCmdSetScissor(cmd, 0, 1, &sc);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                              wc_.convertPipeLayout, 0, 1, &wc_.convertDescSet, 0, nullptr);
 
@@ -272,6 +280,7 @@ void HDRApp::run() {
 
     while (!glfwWindowShouldClose(wc_.window)) {
         glfwPollEvents();
+        if (wc_.framebufferResized) { wc_.framebufferResized = false; recreateSwapchain(wc_, core_); }
         hdrImGui();
         drawFrame();
     }

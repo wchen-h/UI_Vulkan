@@ -45,6 +45,8 @@ struct WindowContext {
     bool            needsSRGBEncode = true;
     int             physWidth_mm  = 0;
     int             physHeight_mm = 0;
+    float           pxPerMm       = 0.0f;   // monitor pixel density (px per mm)
+    bool            framebufferResized = false;
 
     std::vector<VkImage>     swapchainImages;
     std::vector<VkImageView> swapchainViews;

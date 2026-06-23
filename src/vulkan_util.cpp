@@ -184,6 +184,11 @@ VkExtent2D chooseExtent(const VkSurfaceCapabilitiesKHR& caps, uint32_t w, uint32
     return e;
 }
 
+static void framebufferResizeCallback(GLFWwindow* win, int, int) {
+    auto* wc = static_cast<WindowContext*>(glfwGetWindowUserPointer(win));
+    if (wc) wc->framebufferResized = true;
+}
+
 void initVulkanCore(VulkanCore& core, WindowContext& wc, const char* windowTitle, bool hdr) {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -193,9 +198,19 @@ void initVulkanCore(VulkanCore& core, WindowContext& wc, const char* windowTitle
     glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
     glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
     glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
-    wc.window = glfwCreateWindow(mode->width, mode->height, windowTitle, monitor, nullptr);
+    glfwWindowHint(GLFW_DECORATED, GLFW_TRUE);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+    // Windowed mode (not fullscreen): free drag / resize.
+    int winW = (int)(mode->width  * 0.85f);
+    int winH = (int)(mode->height * 0.85f);
+    wc.window = glfwCreateWindow(winW, winH, windowTitle, nullptr, nullptr);
     if (!wc.window) throw std::runtime_error("GLFW window creation failed");
+    glfwSetWindowPos(wc.window, (mode->width - winW) / 2, (mode->height - winH) / 2);
     glfwGetMonitorPhysicalSize(monitor, &wc.physWidth_mm, &wc.physHeight_mm);
+    if (wc.physWidth_mm > 0)
+        wc.pxPerMm = (float)mode->width / (float)wc.physWidth_mm;
+    glfwSetWindowUserPointer(wc.window, &wc);
+    glfwSetFramebufferSizeCallback(wc.window, framebufferResizeCallback);
 
     std::vector<const char*> instExts;
     uint32_t glfwExtCount;
@@ -459,7 +474,11 @@ void recreateSwapchain(WindowContext& wc, VulkanCore& core) {
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(core.physicalDevice, wc.surface, &caps);
     if (caps.currentExtent.width == 0 || caps.currentExtent.height == 0) return;
 
-    VkExtent2D newExtent = chooseExtent(caps, WINDOW_WIDTH, WINDOW_HEIGHT);
+    // Use the actual framebuffer size (handles windowed resize correctly).
+    int fbW = 0, fbH = 0;
+    glfwGetFramebufferSize(wc.window, &fbW, &fbH);
+    if (fbW <= 0 || fbH <= 0) { fbW = WINDOW_WIDTH; fbH = WINDOW_HEIGHT; }
+    VkExtent2D newExtent = chooseExtent(caps, (uint32_t)fbW, (uint32_t)fbH);
     bool sizeChanged = (newExtent.width  != wc.swapchainExt.width ||
                         newExtent.height != wc.swapchainExt.height);
 
@@ -772,17 +791,16 @@ void createUIPipeline(WindowContext& wc, VulkanCore& core, VkBuffer quadVB) {
     ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
-    VkViewport vp{};
-    vp.x = 0; vp.y = 0;
-    vp.width  = (float)wc.swapchainExt.width;
-    vp.height = (float)wc.swapchainExt.height;
-    vp.minDepth = 0.f; vp.maxDepth = 1.f;
-    VkRect2D sc{{0,0}, wc.swapchainExt};
-
     VkPipelineViewportStateCreateInfo vs{};
     vs.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    vs.viewportCount = 1; vs.pViewports = &vp;
-    vs.scissorCount = 1; vs.pScissors = &sc;
+    vs.viewportCount = 1;
+    vs.scissorCount = 1;
+
+    VkDynamicState dynStates[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+    VkPipelineDynamicStateCreateInfo dynState{};
+    dynState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynState.dynamicStateCount = 2;
+    dynState.pDynamicStates = dynStates;
 
     VkPipelineRasterizationStateCreateInfo rs{};
     rs.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
@@ -818,6 +836,7 @@ void createUIPipeline(WindowContext& wc, VulkanCore& core, VkBuffer quadVB) {
     pci.pVertexInputState = &vi; pci.pInputAssemblyState = &ia;
     pci.pViewportState = &vs; pci.pRasterizationState = &rs;
     pci.pMultisampleState = &ms; pci.pColorBlendState = &cbs;
+    pci.pDynamicState = &dynState;
     pci.layout = wc.uiPipeLayout;
     pci.renderPass = wc.uiPass; pci.subpass = 0;
     vkCreateGraphicsPipelines(core.device, VK_NULL_HANDLE, 1, &pci, nullptr, &wc.uiPipeline);
@@ -846,17 +865,16 @@ void createConvertPipeline(WindowContext& wc, VulkanCore& core,
     ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
-    VkViewport vp{};
-    vp.x = 0; vp.y = 0;
-    vp.width  = (float)wc.swapchainExt.width;
-    vp.height = (float)wc.swapchainExt.height;
-    vp.minDepth = 0.f; vp.maxDepth = 1.f;
-    VkRect2D sc{{0,0}, wc.swapchainExt};
-
     VkPipelineViewportStateCreateInfo vs{};
     vs.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    vs.viewportCount = 1; vs.pViewports = &vp;
-    vs.scissorCount = 1; vs.pScissors = &sc;
+    vs.viewportCount = 1;
+    vs.scissorCount = 1;
+
+    VkDynamicState dynStates[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+    VkPipelineDynamicStateCreateInfo dynState{};
+    dynState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynState.dynamicStateCount = 2;
+    dynState.pDynamicStates = dynStates;
 
     VkPipelineRasterizationStateCreateInfo rs{};
     rs.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
@@ -892,6 +910,7 @@ void createConvertPipeline(WindowContext& wc, VulkanCore& core,
     pci.pVertexInputState = &vi; pci.pInputAssemblyState = &ia;
     pci.pViewportState = &vs; pci.pRasterizationState = &rs;
     pci.pMultisampleState = &ms; pci.pColorBlendState = &cbs;
+    pci.pDynamicState = &dynState;
     pci.layout = wc.convertPipeLayout;
     pci.renderPass = wc.convertPass; pci.subpass = 0;
     vkCreateGraphicsPipelines(core.device, VK_NULL_HANDLE, 1, &pci, nullptr, &wc.convertPipeline);
@@ -1017,11 +1036,14 @@ void recordUIPass(WindowContext& wc, VkCommandBuffer cmd, uint32_t imageIdx,
     if (ui.uiDescSet == VK_NULL_HANDLE) return;
 
     float scaleX, scaleY;
-    if (wc.physWidth_mm > 0 && wc.physHeight_mm > 0) {
+    if (wc.pxPerMm > 0.0f) {
+        // Keep UI at a fixed physical size (mm) regardless of window size.
         float physW = (float)ui.width  * 25.4f / UI_REFERENCE_DPI;
         float physH = (float)ui.height * 25.4f / UI_REFERENCE_DPI;
-        scaleX = 2.0f * physW / (float)wc.physWidth_mm;
-        scaleY = 2.0f * physH / (float)wc.physHeight_mm;
+        float winPhysW = (float)wc.swapchainExt.width  / wc.pxPerMm;
+        float winPhysH = (float)wc.swapchainExt.height / wc.pxPerMm;
+        scaleX = 2.0f * physW / winPhysW;
+        scaleY = 2.0f * physH / winPhysH;
     } else {
         scaleX = 2.0f * (float)ui.width  / (float)wc.swapchainExt.width;
         scaleY = 2.0f * (float)ui.height / (float)wc.swapchainExt.height;
@@ -1046,6 +1068,14 @@ void recordUIPass(WindowContext& wc, VkCommandBuffer cmd, uint32_t imageIdx,
 
     vkCmdBeginRenderPass(cmd, &rpbi, VK_SUBPASS_CONTENTS_INLINE);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, wc.uiPipeline);
+    VkViewport vp{};
+    vp.x = 0; vp.y = 0;
+    vp.width  = (float)wc.swapchainExt.width;
+    vp.height = (float)wc.swapchainExt.height;
+    vp.minDepth = 0.f; vp.maxDepth = 1.f;
+    vkCmdSetViewport(cmd, 0, 1, &vp);
+    VkRect2D sc{{0,0}, wc.swapchainExt};
+    vkCmdSetScissor(cmd, 0, 1, &sc);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                              wc.uiPipeLayout, 0, 1, &ui.uiDescSet, 0, nullptr);
     vkCmdPushConstants(cmd, wc.uiPipeLayout,
