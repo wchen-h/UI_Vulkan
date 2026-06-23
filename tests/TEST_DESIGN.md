@@ -21,14 +21,14 @@
 | 层级 | 变量 | 取值 | 组数 | 角色 |
 |------|------|------|------|------|
 | Layer 1 | **SDR_UI_Alpha** | 0.1 ~ 1.0，步长 0.1 | **10** | 自变量（实验者设定） |
-| Layer 2 | **HDR_BG_Nit** | 0 ~ 1000 nit，步长 50 | **21**¹ | 自变量（实验者设定） |
+| Layer 2 | **HDR_BG_Nit** | 50 ~ 1000 nit，步长 50 | **20**¹ | 自变量（实验者设定） |
 | Layer 3 | **UI 素材** | `pic/cropped_images/*_rgb_*.png` | **12**² | 遍历对象 |
 | — | SDR_BG_Nit | 固定 350 nit | 1 | 常量 |
 
-> ¹ 0~1000 步长 50 含两端为 21 点。若严格需要 20 组，改 `generate_test_grid.py` 中 `HDR_BG_NITS = list(range(0, 1000, 50))`（0~950）或 `list(range(50, 1001, 50))`（50~1000）后重跑。
+> ¹ BG=0 已剔除——黑背景下恒亮度 Lock 使 Eff.Alpha 对渲染完全失效（见 `ISSUES_SUMMARY.md §11`）。50~1000 步长 50 含两端共 20 点。
 > ² 实际素材为 12 个（`pic/cropped_images` 下 `_rgb_` 文件数）。之前口述的 13 与之有出入。
 
-**测试点总数** = 10 × 21 × 12 = **2520**（CSV 含表头共 2521 行）
+**测试点总数** = 10 × 20 × 12 = **2400**（CSV 含表头共 2401 行）
 
 ### 单次试验流程（每个 UI 组合）
 
@@ -44,7 +44,7 @@
 
 ```
 for SDR_UI_Alpha in [0.1 .. 1.0]:          # 最外层 block
-    for HDR_BG_Nit in [0, 50 .. 1000]:     # 中层 sub-block
+    for HDR_BG_Nit in [50, 100 .. 1000]:     # 中层 sub-block
         for UI in 所有UI素材:               # 最内层逐个测
             调节 -> Lock -> 调Alpha -> 微调chroma -> 记录
 ```

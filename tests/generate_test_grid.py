@@ -5,7 +5,7 @@
 
 实验结构（三层嵌套）：
   Layer 1: SDR_UI_Alpha  0.1~1.0 步长 0.1        (10 组, SDR bg 固定 350 nit)
-  Layer 2: HDR_BG_Nit    0~1000  步长 50 nit      (含两端共 21 个点)
+  Layer 2: HDR_BG_Nit    50~1000 步长 50 nit      (含两端共 20 个点)
   Layer 3: UI 素材        pic/cropped_images/*_rgb_*.png  (实际 12 个)
 
 每行 = 一个测试点，被试调节达成主观一致后填写：
@@ -21,9 +21,8 @@ from pathlib import Path
 # ---- 可调参数 ----
 SDR_BG_NIT_FIXED = 350                       # SDR 窗口背景固定亮度 (nit)
 SDR_ALPHAS = [round(0.1 * i, 1) for i in range(1, 11)]   # 0.1 .. 1.0
-HDR_BG_NITS = list(range(0, 1001, 50))       # 0,50,...,1000 -> 21 点
-# 若严格需要 20 组，改为: HDR_BG_NITS = list(range(0, 1000, 50))  # 0..950
-#                或        HDR_BG_NITS = list(range(50, 1001, 50)) # 50..1000
+HDR_BG_NITS = list(range(50, 1001, 50))      # 50,100,...,1000 -> 20 点
+# 注: BG=0 已剔除——黑背景下恒亮度 Lock 使 Eff.Alpha 对渲染失效(见 ISSUES_SUMMARY.md §11)
 
 ASSET_DIR = Path(__file__).resolve().parent.parent / "pic" / "cropped_images"
 OUT_CSV   = Path(__file__).resolve().parent / "matching_experiment_data.csv"
