@@ -39,7 +39,7 @@ private:
     float sdrAlpha_ = 1.0f;
 
     // HDR controls
-    float maxNit_  = 2000.0f, bgNit_ = 500.0f, uiLumNit_ = 500.0f, effAlpha_ = 1.0f;
+    float maxNit_  = 4000.0f, bgNit_ = 500.0f, uiLumNit_ = 500.0f, effAlpha_ = 1.0f;
     bool  locked_  = false;
     float lumLock_ = 0.0f;
 };

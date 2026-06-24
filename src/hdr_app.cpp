@@ -166,7 +166,7 @@ void HDRApp::hdrImGui() {
     ImGui::SameLine();
     if (ImGui::Button("Next >")) { currentUI_ = (currentUI_ + 1) % uiPairs_.size(); }
 
-    ImGui::DragInt("Max Nit", &maxNit_, 1.0f, 100, 2000);
+    ImGui::DragInt("Max Nit", &maxNit_, 1.0f, 100, 4000);
     ImGui::BeginDisabled(locked_);
     ImGui::DragInt("BG Nit",  &bgNit_,  1.0f, 0, maxNit_);
     ImGui::EndDisabled();
@@ -203,7 +203,7 @@ float bgNitF = (float)bgNit_;
     }
     ImGui::SameLine();
     ImGui::Text(locked_ ? "LOCKED" : "unlocked");
-    ImGui::DragFloat("UI Lum Nit", &uiLumNit_, 1.0f, 0.0f, 2000.0f, "%.0f");
+    ImGui::DragFloat("UI Lum Nit", &uiLumNit_, 1.0f, 0.0f, 4000.0f, "%.0f");
     ImGui::SliderFloat("Eff. Alpha", &effAlpha_, 0.0f, 1.0f);
     ImGui::DragFloat("Chroma Scale", &chromaScale_, 0.001f, 0.0f, 2.0f, "%.3f");
     ImGui::PopItemWidth();
