@@ -456,7 +456,7 @@ void initWindowSwapchain(WindowContext& wc, VulkanCore& core) {
 
     createImage(core.device, core.physicalDevice, extent.width, extent.height,
                 VK_FORMAT_R16G16B16A16_SFLOAT,
-                VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
                 wc.linearImg, wc.linearMem);
     wc.linearView = createImageView(core.device, wc.linearImg,
                                      VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -539,7 +539,7 @@ void recreateSwapchain(WindowContext& wc, VulkanCore& core) {
     if (sizeChanged) {
         createImage(core.device, core.physicalDevice, newExtent.width, newExtent.height,
                     VK_FORMAT_R16G16B16A16_SFLOAT,
-                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
                     wc.linearImg, wc.linearMem);
         wc.linearView = createImageView(core.device, wc.linearImg,
                                          VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT);

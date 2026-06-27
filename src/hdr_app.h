@@ -27,4 +27,7 @@ private:
     float effAlpha_ = 1.0f;
     float yScale_    = 1.0f;
     float cbcrScale_ = 1.0f;
+    float avgMixedNit_ = 0.0f;
+    VkBuffer readbackBuf_ = VK_NULL_HANDLE;
+    VkDeviceMemory readbackMem_ = VK_NULL_HANDLE;
 };
