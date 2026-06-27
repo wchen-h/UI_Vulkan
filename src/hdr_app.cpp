@@ -108,7 +108,7 @@ void HDRApp::init() {
     createUIPipeline(wc_, core_, quadVB_);
     createConvertPipeline(wc_, core_,
                           SHADER_DIR "srgb_convert.vert.spv",
-                          SHADER_DIR "pq_convert.frag.spv", 8);
+                          SHADER_DIR "pq_convert.frag.spv", 4);
     createCmdBuffersAndSync(wc_, core_);
     initImGuiForWindow(wc_, core_);
 
@@ -151,8 +151,8 @@ void HDRApp::recordConvertPass(VkCommandBuffer cmd, uint32_t imageIdx) {
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                              wc_.convertPipeLayout, 0, 1, &wc_.convertDescSet, 0, nullptr);
 
-    float pcData[2] = { (float)maxNit_, chromaScale_ };
-    vkCmdPushConstants(cmd, wc_.convertPipeLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, 8, pcData);
+    float pcData = (float)maxNit_;
+    vkCmdPushConstants(cmd, wc_.convertPipeLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4, &pcData);
 
     vkCmdDraw(cmd, 3, 1, 0, 0);
     vkCmdEndRenderPass(cmd);
@@ -260,8 +260,8 @@ void HDRApp::drawFrame() {
             };
 
             // Linear intermediate stores BT.709-linear [0,1] (1.0=350nit)
-            // Read center pixel, convert to nit: nit = linear * 350
-            // Then apply chromaScale and clamp (same as pq_convert.frag)
+            // chromaScale is already applied in ui.frag (uiRGB * chromaScale)
+            // Read center pixel, convert to nit: nit = linear * 350, clamp
             int idx = (cy * w + cx) * 4;
             float rLin = h2f(px[idx + 0]);
             float gLin = h2f(px[idx + 1]);
@@ -272,11 +272,11 @@ void HDRApp::drawFrame() {
             float g2020 = 0.069097f*rLin + 0.919540f*gLin + 0.011362f*bLin;
             float b2020 = 0.016391f*rLin + 0.088013f*gLin + 0.895595f*bLin;
 
-            // to nit, apply chromaScale, clamp
+            // to nit, clamp (no chromaScale here - already applied in ui.frag)
             float maxNitF = (float)maxNit_;
-            dbgClampedNit_[0] = std::clamp(r2020 * 350.0f * chromaScale_, 0.0f, maxNitF);
-            dbgClampedNit_[1] = std::clamp(g2020 * 350.0f * chromaScale_, 0.0f, maxNitF);
-            dbgClampedNit_[2] = std::clamp(b2020 * 350.0f * chromaScale_, 0.0f, maxNitF);
+            dbgClampedNit_[0] = std::clamp(r2020 * 350.0f, 0.0f, maxNitF);
+            dbgClampedNit_[1] = std::clamp(g2020 * 350.0f, 0.0f, maxNitF);
+            dbgClampedNit_[2] = std::clamp(b2020 * 350.0f, 0.0f, maxNitF);
 
             vkUnmapMemory(core_.device, readbackMem_);
         }
@@ -305,7 +305,7 @@ void HDRApp::drawFrame() {
         if (avgLum > 0.0001f) uiLumMult = uiLumNit_ / (avgLum * PAPER_WHITE_NIT);
     }
 
-    recordUIPass(wc, cmd, imageIdx, uiPairs_, currentUI_, quadVB_, bgLinear, effAlpha_, uiLumMult, 1.0f);
+    recordUIPass(wc, cmd, imageIdx, uiPairs_, currentUI_, quadVB_, bgLinear, effAlpha_, 1.0f, chromaScale_);
 
     // Copy linear intermediate to readback buffer (after UI pass, before convert pass)
     if (readbackBuf_ != VK_NULL_HANDLE) {

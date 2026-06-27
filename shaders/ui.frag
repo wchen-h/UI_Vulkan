@@ -11,8 +11,8 @@ layout(push_constant) uniform FragPush {
     // bytes 0-15: vertex (offset + scale) — shared range
     layout(offset = 16) float uiAlphaMultiplier; // bytes 16-19
     layout(offset = 20) float bgLinear;           // bytes 20-23
-    layout(offset = 24) float uiLumMult;          // bytes 24-27 (SDR=1.0, HDR=uiLumRatio)
-    layout(offset = 28) float chromaScale;        // bytes 28-31 (unused in ui.frag, moved to pq_convert)
+    layout(offset = 24) float uiLumMult;          // bytes 24-27 (unused now)
+    layout(offset = 28) float chromaScale;        // bytes 28-31 (scales uiRGB directly)
 } fpc;
 
 layout(location = 0) in vec2 fragUV;
@@ -23,8 +23,8 @@ void main() {
     float uiAlpha = texture(texAlpha, fragUV).r;
     uiAlpha      *= fpc.uiAlphaMultiplier;
 
-    // Apply brightness multiplier to UI
-    vec3 uiAdj = uiRGB * fpc.uiLumMult;
+    // Apply chromaScale directly to UI RGB (not affected by uiLumMult)
+    vec3 uiAdj = uiRGB * fpc.chromaScale;
 
     vec3 blended = uiAdj * uiAlpha + fpc.bgLinear * (1.0 - uiAlpha);
 
