@@ -263,10 +263,13 @@ void HDRApp::drawFrame() {
             float pqBg = pq_encode(bgNitF);
 
             // CAM16 viewing conditions
+            // XYZ_w = D65 at display peak (4000 nit), scale=100
+            // L_A = adjusted UI average luminance (from previous frame)
+            // Y_b = background relative to display peak
             CAM16ViewingConditions vc;
             vc.XYZ_w[0] = 95.04f; vc.XYZ_w[1] = 100.0f; vc.XYZ_w[2] = 108.88f; // D65 scale=100
-            vc.L_A = bgNitF / 5.0f;      // adapting luminance ~20% of white
-            vc.Y_b = 100.0f * bgNitF / 350.0f; // background luminance factor
+            vc.L_A = (avgMixedNit_ > 1.0f) ? avgMixedNit_ : 4.07f;  // dynamic: use UI avg luminance, fallback to sRGB default
+            vc.Y_b = 100.0f * bgNitF / 4000.0f; // background relative to display peak
             vc.F = 1.0f; vc.c = 0.69f; vc.N_c = 1.0f; // Average surround
 
             CAM16Intermediate im;

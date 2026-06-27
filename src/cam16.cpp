@@ -76,9 +76,11 @@ float pq_decode(float pq_code) {
 // ============================================================
 // BT.2020 linear RGB (nit) <-> CIE XYZ (scale=100)
 // ============================================================
-// RGB_nit / 350 (paper white) -> normalized -> * 100 = XYZ_100
+// whiteNit = display peak luminance (reference white)
+static const float WHITE_NIT = 4000.0f;
+
 void bt2020_nit_to_xyz100(const float rgb_nit[3], float xyz[3]) {
-    float norm[3] = {rgb_nit[0] / 350.0f, rgb_nit[1] / 350.0f, rgb_nit[2] / 350.0f};
+    float norm[3] = {rgb_nit[0] / WHITE_NIT, rgb_nit[1] / WHITE_NIT, rgb_nit[2] / WHITE_NIT};
     float xyz_norm[3];
     mat3_mul_vec(M_BT2020_TO_XYZ, norm, xyz_norm);
     xyz[0] = xyz_norm[0] * 100.0f;
@@ -90,9 +92,9 @@ void xyz100_to_bt2020_nit(const float xyz[3], float rgb_nit[3]) {
     float xyz_norm[3] = {xyz[0] / 100.0f, xyz[1] / 100.0f, xyz[2] / 100.0f};
     float norm[3];
     mat3_mul_vec(M_XYZ_TO_BT2020, xyz_norm, norm);
-    rgb_nit[0] = norm[0] * 350.0f;
-    rgb_nit[1] = norm[1] * 350.0f;
-    rgb_nit[2] = norm[2] * 350.0f;
+    rgb_nit[0] = norm[0] * WHITE_NIT;
+    rgb_nit[1] = norm[1] * WHITE_NIT;
+    rgb_nit[2] = norm[2] * WHITE_NIT;
 }
 
 // ============================================================
