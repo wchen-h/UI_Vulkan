@@ -222,7 +222,7 @@ float bgNitF = (float)bgNit_;
     prevQScale = qScale_;
     prevAlpha = effAlpha_;
     ImGui::Text("Out-of-gamut pixels: %d", outOfGamutCount_);
-    ImGui::Text("Center pixel (pre-PQ nit): R=%.1f G=%.1f B=%.1f",
+    ImGui::Text("Center pixel (post-CAM16 nit): R=%.1f G=%.1f B=%.1f",
                 dbgCenterNit_[0], dbgCenterNit_[1], dbgCenterNit_[2]);
     ImGui::PopItemWidth();
     ImGui::End();
@@ -351,13 +351,6 @@ void HDRApp::drawFrame() {
                             nit2020[2] * effA + bgNitF * invA
                         };
 
-                        // Debug: capture center pixel's pre-PQ linear nit
-                        if (y == quadH/2 && x == quadW/2) {
-                            dbgCenterNit_[0] = mixedNit[0];
-                            dbgCenterNit_[1] = mixedNit[1];
-                            dbgCenterNit_[2] = mixedNit[2];
-                        }
-
                         // PQ encode -> 10-bit [0,1023]
                         float rgb_pq_in[3] = {
                             pq_encode(mixedNit[0]) * 1023.0f,
@@ -369,6 +362,13 @@ void HDRApp::drawFrame() {
                         float rgb_pq_out[3];
                         bool inGamut = cam16_adjust_pixel(rgb_pq_in, rgb_pq_out, qScale_, vc, im);
                         if (!inGamut) outOfGamutCount_++;
+
+                        // Debug: capture center pixel's post-CAM16 linear nit (PQ decode back to nit)
+                        if (y == quadH/2 && x == quadW/2) {
+                            dbgCenterNit_[0] = pq_decode(rgb_pq_out[0] / 1023.0f);
+                            dbgCenterNit_[1] = pq_decode(rgb_pq_out[1] / 1023.0f);
+                            dbgCenterNit_[2] = pq_decode(rgb_pq_out[2] / 1023.0f);
+                        }
 
                         // Convert to [0,1] PQ and write as half-float
                         int pxIdx = ((quadY0 + y) * w + (quadX0 + x)) * 4;
