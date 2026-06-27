@@ -217,8 +217,14 @@ void HDRApp::drawFrame() {
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(cmd, &bi);
 
-    // HDR: pass bgNit directly (shader handles ×350, BT.2020, PQ, YCbCr)
-    recordUIPass(wc, cmd, imageIdx, uiPairs_, currentUI_, quadVB_, (float)bgNit_, effAlpha_, yScale_, cbcrScale_);
+    // HDR: pass bgNit (for shader mixing) + PQ(bgNit) (for clear color)
+    float bgNitF = (float)bgNit_;
+    float y = std::min(bgNitF, (float)maxNit_) / 10000.0f;
+    float yPow = powf(y, 2610.0f/16384.0f);
+    float num = 3424.0f/4096.0f + (2413.0f/128.0f) * yPow;
+    float den = 1.0f + (2392.0f/128.0f) * yPow;
+    float pqBg = powf(num/den, 2523.0f/32.0f);
+    recordUIPass(wc, cmd, imageIdx, uiPairs_, currentUI_, quadVB_, bgNitF, effAlpha_, yScale_, cbcrScale_, pqBg);
     recordConvertPass(cmd, imageIdx);
     recordImGuiPass(wc, cmd, imageIdx);
 

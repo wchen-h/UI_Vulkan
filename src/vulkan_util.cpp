@@ -1031,7 +1031,7 @@ void createQuadBuffer(VulkanCore& core, VkBuffer& buf, VkDeviceMemory& mem) {
 void recordUIPass(WindowContext& wc, VkCommandBuffer cmd, uint32_t imageIdx,
                    const std::vector<UIPair>& uiPairs, int currentUI,
                    VkBuffer quadVB, float bgLinear, float alpha, float yScale,
-                   float cbcrScale) {
+                   float cbcrScale, float clearValue) {
     if (uiPairs.empty()) return;
     const auto& ui = uiPairs[currentUI];
     if (ui.uiDescSet == VK_NULL_HANDLE) return;
@@ -1057,7 +1057,7 @@ void recordUIPass(WindowContext& wc, VkCommandBuffer cmd, uint32_t imageIdx,
     };
 
     VkClearValue clearVal{};
-    clearVal.color = {{bgLinear, bgLinear, bgLinear, 1.0f}};
+    clearVal.color = {{clearValue, clearValue, clearValue, 1.0f}};
 
     VkRenderPassBeginInfo rpbi{};
     rpbi.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
