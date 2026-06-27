@@ -28,4 +28,9 @@ private:
     float chromaScale_ = 1.0f;
     bool  locked_  = false;
     float lumLock_ = 0.0f;
+    // Debug: center pixel clamped nit values (R,G,B)
+    float dbgClampedNit_[3] = {0,0,0};
+    // Readback buffer for GPU→CPU pixel read
+    VkBuffer readbackBuf_ = VK_NULL_HANDLE;
+    VkDeviceMemory readbackMem_ = VK_NULL_HANDLE;
 };

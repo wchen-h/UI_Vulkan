@@ -1,7 +1,7 @@
 // HDR PQ (ST.2084) encoding fragment shader
 // Reads linear intermediate (BT.709 primaries, normalized, 1.0 = 350 nit paper white),
-// converts primaries BT.709 -> BT.2020 (HDR10), scales to absolute nit, applies
-// ST.2084 PQ OETF, outputs to swapchain.
+// converts primaries BT.709 -> BT.2020 (HDR10), scales to absolute nit,
+// applies chromaScale on nitVal, applies ST.2084 PQ OETF, outputs to swapchain.
 
 #version 450
 
@@ -9,6 +9,7 @@ layout(binding = 0) uniform sampler2D texLinear;  // linear intermediate (R16G16
 
 layout(push_constant) uniform PQPush {
     float uMaxNit;        // clamp ceiling
+    float uChromaScale;  // multiply nitVal by this (1.0 = no change)
 } pc;
 
 // Must match common.h PAPER_WHITE_NIT. Linear 1.0 == this many nit.
@@ -44,6 +45,7 @@ void main() {
     vec3 linear709  = texture(texLinear, fragUV).rgb;     // [0,1] BT.709-linear
     vec3 linear2020 = BT709_TO_BT2020 * linear709;        // [0,1] BT.2020-linear
     vec3 nitVal     = linear2020 * PAPER_WHITE_NIT;       // convert to nit
+    nitVal         *= pc.uChromaScale;                    // apply chromaScale on nit
     vec3 clamped    = clamp(nitVal, 0.0, pc.uMaxNit);
     outColor = vec4(linearToPQ(clamped), 1.0);
 }

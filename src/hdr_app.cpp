@@ -16,6 +16,8 @@ HDRApp::~HDRApp() {
 
     if (quadVB_ != VK_NULL_HANDLE) vkDestroyBuffer(core_.device, quadVB_, nullptr);
     if (quadVBMem_ != VK_NULL_HANDLE) vkFreeMemory(core_.device, quadVBMem_, nullptr);
+    if (readbackBuf_ != VK_NULL_HANDLE) vkDestroyBuffer(core_.device, readbackBuf_, nullptr);
+    if (readbackMem_ != VK_NULL_HANDLE) vkFreeMemory(core_.device, readbackMem_, nullptr);
 
     for (auto& p : uiPairs_) {
         if (p.rgb.view) vkDestroyImageView(core_.device, p.rgb.view, nullptr);
@@ -106,9 +108,18 @@ void HDRApp::init() {
     createUIPipeline(wc_, core_, quadVB_);
     createConvertPipeline(wc_, core_,
                           SHADER_DIR "srgb_convert.vert.spv",
-                          SHADER_DIR "pq_convert.frag.spv", 4);
+                          SHADER_DIR "pq_convert.frag.spv", 8);
     createCmdBuffersAndSync(wc_, core_);
     initImGuiForWindow(wc_, core_);
+
+    // Readback buffer for center pixel debug
+    {
+        VkDeviceSize readbackSize = (VkDeviceSize)wc_.swapchainExt.width * wc_.swapchainExt.height * 8;
+        createGPUBuffer(core_.device, core_.physicalDevice, readbackSize,
+                        VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                        readbackBuf_, readbackMem_);
+    }
 
     std::cout << "[INFO] HDR window ready. Format: PQ+ST.2084" << std::endl;
 }
@@ -140,8 +151,8 @@ void HDRApp::recordConvertPass(VkCommandBuffer cmd, uint32_t imageIdx) {
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                              wc_.convertPipeLayout, 0, 1, &wc_.convertDescSet, 0, nullptr);
 
-    float pc = (float)maxNit_;
-    vkCmdPushConstants(cmd, wc_.convertPipeLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, 4, &pc);
+    float pcData[2] = { (float)maxNit_, chromaScale_ };
+    vkCmdPushConstants(cmd, wc_.convertPipeLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, 8, pcData);
 
     vkCmdDraw(cmd, 3, 1, 0, 0);
     vkCmdEndRenderPass(cmd);
@@ -205,7 +216,9 @@ float bgNitF = (float)bgNit_;
     ImGui::Text(locked_ ? "LOCKED" : "unlocked");
     ImGui::DragFloat("UI Lum Nit", &uiLumNit_, 1.0f, 0.0f, 4000.0f, "%.0f");
     ImGui::SliderFloat("Eff. Alpha", &effAlpha_, 0.0f, 1.0f);
-    ImGui::DragFloat("Chroma Scale", &chromaScale_, 0.001f, 0.0f, 2.0f, "%.3f");
+    ImGui::DragFloat("Chroma Scale", &chromaScale_, 0.001f, 0.0f, 10.0f, "%.3f");
+    ImGui::Text("Center clamped nit: R=%.1f G=%.1f B=%.1f",
+                dbgClampedNit_[0], dbgClampedNit_[1], dbgClampedNit_[2]);
     ImGui::PopItemWidth();
     ImGui::End();
 
@@ -217,6 +230,57 @@ void HDRApp::drawFrame() {
     if (glfwWindowShouldClose(wc.window)) return;
 
     vkWaitForFences(core_.device, 1, &wc.inFlight[wc.currentFrame], VK_TRUE, UINT64_MAX);
+
+    // Read back center pixel from previous frame's linear intermediate
+    if (readbackBuf_ != VK_NULL_HANDLE && !uiPairs_.empty()) {
+        const auto& ui = uiPairs_[currentUI_];
+        int w = wc.swapchainExt.width;
+        int h = wc.swapchainExt.height;
+        float scaleX = (float)ui.width / (float)w;
+        float scaleY = (float)ui.height / (float)h;
+        int quadW = (int)((float)w * scaleX);
+        int quadH = (int)((float)h * scaleY);
+        int cx = w / 2;
+        int cy = h / 2;
+
+        VkDeviceSize bufSize = (VkDeviceSize)w * h * 8;
+        void* mapped = nullptr;
+        if (vkMapMemory(core_.device, readbackMem_, 0, bufSize, 0, &mapped) == VK_SUCCESS) {
+            const uint16_t* px = static_cast<const uint16_t*>(mapped);
+
+            auto h2f = [](uint16_t h) -> float {
+                int sign = (h >> 15) & 1;
+                int exp  = (h >> 10) & 0x1f;
+                int mant = h & 0x3ff;
+                float val;
+                if (exp == 0)      val = mant * 5.9604645e-08f;
+                else if (exp == 31) val = 0.0f;
+                else                val = ldexpf(1.0f + mant / 1024.0f, exp - 15);
+                return sign ? -val : val;
+            };
+
+            // Linear intermediate stores BT.709-linear [0,1] (1.0=350nit)
+            // Read center pixel, convert to nit: nit = linear * 350
+            // Then apply chromaScale and clamp (same as pq_convert.frag)
+            int idx = (cy * w + cx) * 4;
+            float rLin = h2f(px[idx + 0]);
+            float gLin = h2f(px[idx + 1]);
+            float bLin = h2f(px[idx + 2]);
+
+            // BT.709 -> BT.2020
+            float r2020 = 0.627404f*rLin + 0.329283f*gLin + 0.043313f*bLin;
+            float g2020 = 0.069097f*rLin + 0.919540f*gLin + 0.011362f*bLin;
+            float b2020 = 0.016391f*rLin + 0.088013f*gLin + 0.895595f*bLin;
+
+            // to nit, apply chromaScale, clamp
+            float maxNitF = (float)maxNit_;
+            dbgClampedNit_[0] = std::clamp(r2020 * 350.0f * chromaScale_, 0.0f, maxNitF);
+            dbgClampedNit_[1] = std::clamp(g2020 * 350.0f * chromaScale_, 0.0f, maxNitF);
+            dbgClampedNit_[2] = std::clamp(b2020 * 350.0f * chromaScale_, 0.0f, maxNitF);
+
+            vkUnmapMemory(core_.device, readbackMem_);
+        }
+    }
 
     uint32_t imageIdx;
     VkResult r = vkAcquireNextImageKHR(core_.device, wc.swapchain, UINT64_MAX,
@@ -241,7 +305,40 @@ void HDRApp::drawFrame() {
         if (avgLum > 0.0001f) uiLumMult = uiLumNit_ / (avgLum * PAPER_WHITE_NIT);
     }
 
-    recordUIPass(wc, cmd, imageIdx, uiPairs_, currentUI_, quadVB_, bgLinear, effAlpha_, uiLumMult, chromaScale_);
+    recordUIPass(wc, cmd, imageIdx, uiPairs_, currentUI_, quadVB_, bgLinear, effAlpha_, uiLumMult, 1.0f);
+
+    // Copy linear intermediate to readback buffer (after UI pass, before convert pass)
+    if (readbackBuf_ != VK_NULL_HANDLE) {
+        VkImageMemoryBarrier b{};
+        b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        b.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        b.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        b.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        b.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image = wc.linearImg;
+        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &b);
+
+        VkBufferImageCopy region{};
+        region.bufferOffset = 0;
+        region.bufferRowLength = wc.swapchainExt.width;
+        region.bufferImageHeight = wc.swapchainExt.height;
+        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        region.imageExtent = {wc.swapchainExt.width, wc.swapchainExt.height, 1};
+        vkCmdCopyImageToBuffer(cmd, wc.linearImg, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                               readbackBuf_, 1, &region);
+
+        b.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        b.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        b.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &b);
+    }
+
     recordConvertPass(cmd, imageIdx);
     recordImGuiPass(wc, cmd, imageIdx);
 
