@@ -2,6 +2,10 @@
 #include <cmath>
 #include <algorithm>
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 // ============================================================
 // CAT16 matrix (from colour-science/colour: colour/adaptation/datasets/cat.py)
 // Reference: Li et al. (2017), doi:10.1002/col.22131
