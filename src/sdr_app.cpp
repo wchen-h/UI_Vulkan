@@ -101,7 +101,7 @@ void SDRApp::init() {
 
     createConvertDescriptor(wc_, core_);
     createFramebuffers(wc_, core_.device);
-    createUIPipeline(wc_, core_, quadVB_);
+    createUIPipeline(wc_, core_, quadVB_, "sdr_ui.frag");
     createConvertPipeline(wc_, core_,
                           SHADER_DIR "srgb_convert.vert.spv",
                           SHADER_DIR "srgb_convert.frag.spv", 4);

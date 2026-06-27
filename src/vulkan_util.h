@@ -35,7 +35,8 @@ void recreateSwapchain(WindowContext& wc, VulkanCore& core);
 void createRenderPasses(WindowContext& wc, VkDevice dev);
 void createFramebuffers(WindowContext& wc, VkDevice dev);
 void createConvertDescriptor(WindowContext& wc, VulkanCore& core);
-void createUIPipeline(WindowContext& wc, VulkanCore& core, VkBuffer quadVB);
+void createUIPipeline(WindowContext& wc, VulkanCore& core, VkBuffer quadVB,
+                      const char* fragShader);
 void createConvertPipeline(WindowContext& wc, VulkanCore& core,
                            const char* vertPath, const char* fragPath, uint32_t pcSize);
 void createCmdBuffersAndSync(WindowContext& wc, VulkanCore& core);
@@ -44,7 +45,7 @@ void createQuadBuffer(VulkanCore& core, VkBuffer& buf, VkDeviceMemory& mem);
 
 void recordUIPass(WindowContext& wc, VkCommandBuffer cmd, uint32_t imageIdx,
                    const std::vector<UIPair>& uiPairs, int currentUI,
-                   VkBuffer quadVB, float bgLinear, float alpha, float uiLum,
-                   float chromaScale);
+                   VkBuffer quadVB, float bgLinear, float alpha, float yScale,
+                   float cbcrScale);
 void recordImGuiPass(WindowContext& wc, VkCommandBuffer cmd, uint32_t imageIdx);
 void cleanupWindow(WindowContext& wc, VulkanCore& core);

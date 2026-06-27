@@ -103,7 +103,7 @@ void HDRApp::init() {
 
     createConvertDescriptor(wc_, core_);
     createFramebuffers(wc_, core_.device);
-    createUIPipeline(wc_, core_, quadVB_);
+    createUIPipeline(wc_, core_, quadVB_, "hdr_ui.frag");
     createConvertPipeline(wc_, core_,
                           SHADER_DIR "srgb_convert.vert.spv",
                           SHADER_DIR "pq_convert.frag.spv", 4);
@@ -167,9 +167,7 @@ void HDRApp::hdrImGui() {
     if (ImGui::Button("Next >")) { currentUI_ = (currentUI_ + 1) % uiPairs_.size(); }
 
     ImGui::DragInt("Max Nit", &maxNit_, 1.0f, 100, 4000);
-    ImGui::BeginDisabled(locked_);
     ImGui::DragInt("BG Nit",  &bgNit_,  1.0f, 0, maxNit_);
-    ImGui::EndDisabled();
 
     {
 float bgNitF = (float)bgNit_;
@@ -186,26 +184,11 @@ float bgNitF = (float)bgNit_;
         ImGui::TextColored(ImVec4(1,0.5f,0,1), "  ^ clamped by MaxNit");
     }
 
-    if (locked_) {
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.7f, 0.2f, 1.0f));
-        if (ImGui::Button("Unlock")) { locked_ = false; }
-        ImGui::PopStyleColor();
-        float effAlphaF = effAlpha_;
-        if (effAlphaF > 0.001f)
-            uiLumNit_ = (lumLock_ - (float)bgNit_ * (1.0f - effAlphaF)) / effAlphaF;
-        else
-            uiLumNit_ = lumLock_;
-    } else {
-        if (ImGui::Button("Lock")) {
-            locked_ = true;
-            lumLock_ = uiLumNit_ * effAlpha_ + (float)bgNit_ * (1.0f - effAlpha_);
-        }
-    }
-    ImGui::SameLine();
-    ImGui::Text(locked_ ? "LOCKED" : "unlocked");
-    ImGui::DragFloat("UI Lum Nit", &uiLumNit_, 1.0f, 0.0f, 4000.0f, "%.0f");
+    ImGui::Separator();
     ImGui::SliderFloat("Eff. Alpha", &effAlpha_, 0.0f, 1.0f);
-    ImGui::DragFloat("Chroma Scale", &chromaScale_, 0.001f, 0.0f, 2.0f, "%.3f");
+    ImGui::DragFloat("Y-Scale", &yScale_, 0.01f, 0.0f, 10.0f, "%.3f");
+    ImGui::DragFloat("CbCr-Scale", &cbcrScale_, 0.001f, 0.0f, 3.0f, "%.3f");
+    // TODO: Y-Max / CbCr-Max display (requires per-pixel YCbCr max computation)
     ImGui::PopItemWidth();
     ImGui::End();
 
@@ -234,14 +217,8 @@ void HDRApp::drawFrame() {
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(cmd, &bi);
 
-    float bgLinear = (float)bgNit_ / PAPER_WHITE_NIT;
-    float uiLumMult = 1.0f;
-    if (!uiPairs_.empty()) {
-        float avgLum = uiPairs_[currentUI_].lumAvg;
-        if (avgLum > 0.0001f) uiLumMult = uiLumNit_ / (avgLum * PAPER_WHITE_NIT);
-    }
-
-    recordUIPass(wc, cmd, imageIdx, uiPairs_, currentUI_, quadVB_, bgLinear, effAlpha_, uiLumMult, chromaScale_);
+    // HDR: pass bgNit directly (shader handles ×350, BT.2020, PQ, YCbCr)
+    recordUIPass(wc, cmd, imageIdx, uiPairs_, currentUI_, quadVB_, (float)bgNit_, effAlpha_, yScale_, cbcrScale_);
     recordConvertPass(cmd, imageIdx);
     recordImGuiPass(wc, cmd, imageIdx);
 

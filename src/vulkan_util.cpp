@@ -757,9 +757,10 @@ void createConvertDescriptor(WindowContext& wc, VulkanCore& core) {
     vkUpdateDescriptorSets(core.device, 1, &w, 0, nullptr);
 }
 
-void createUIPipeline(WindowContext& wc, VulkanCore& core, VkBuffer quadVB) {
+void createUIPipeline(WindowContext& wc, VulkanCore& core, VkBuffer quadVB,
+                      const char* fragShader) {
     auto vert = loadShader(core.device, SHADER_DIR "ui.vert.spv");
-    auto frag = loadShader(core.device, SHADER_DIR "ui.frag.spv");
+    auto frag = loadShader(core.device, std::string(SHADER_DIR) + fragShader + ".spv");
 
     VkPipelineShaderStageCreateInfo stages[2] = {};
     stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -1029,8 +1030,8 @@ void createQuadBuffer(VulkanCore& core, VkBuffer& buf, VkDeviceMemory& mem) {
 
 void recordUIPass(WindowContext& wc, VkCommandBuffer cmd, uint32_t imageIdx,
                    const std::vector<UIPair>& uiPairs, int currentUI,
-                   VkBuffer quadVB, float bgLinear, float alpha, float uiLum,
-                   float chromaScale) {
+                   VkBuffer quadVB, float bgLinear, float alpha, float yScale,
+                   float cbcrScale) {
     if (uiPairs.empty()) return;
     const auto& ui = uiPairs[currentUI];
     if (ui.uiDescSet == VK_NULL_HANDLE) return;
@@ -1051,8 +1052,8 @@ void recordUIPass(WindowContext& wc, VkCommandBuffer cmd, uint32_t imageIdx,
     float pcData[8] = {
         0.0f, 0.0f,
         scaleX, scaleY,
-        alpha, bgLinear, uiLum,
-        chromaScale,
+        alpha, bgLinear, yScale,
+        cbcrScale,
     };
 
     VkClearValue clearVal{};

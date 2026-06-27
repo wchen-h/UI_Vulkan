@@ -212,10 +212,10 @@ void loadAssets(VulkanCore& core, std::vector<UIPair>& uiPairs,
             uint8_t a8=apix[i]; if(a8==0)continue;
             float a=a8/255.0f, r=rpix[i*4]/255.0f, g=rpix[i*4+1]/255.0f, b=rpix[i*4+2]/255.0f;
             float lum=0.2126f*srgb2lin(r)+0.7152f*srgb2lin(g)+0.0722f*srgb2lin(b);
-            sa+=a; sl+=lum*a; ca++;
-        }
-        p.alphaAvg = ca>0 ? sa/(wr*hr) : 0.001f;
-        p.lumAvg   = sa>0 ? sl/sa : 0.01f;
+        sa+=a; sl+=lum; ca++;
+    }
+    p.alphaAvg = ca>0 ? sa/(wr*hr) : 0.001f;
+    p.lumAvg   = ca>0 ? sl/ca : 0.01f;
         std::cout << "[AVG] " << key << " a=" << p.alphaAvg << " L=" << p.lumAvg << std::endl;
 
         stbi_image_free(rpix); stbi_image_free(apix);

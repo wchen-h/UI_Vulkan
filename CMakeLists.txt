@@ -74,6 +74,8 @@ endfunction()
 
 add_shader(ui.vert           VERT)
 add_shader(ui.frag           FRAG)
+add_shader(sdr_ui.frag       FRAG)
+add_shader(hdr_ui.frag       FRAG)
 add_shader(srgb_convert.vert VERT)
 add_shader(srgb_convert.frag FRAG)
 add_shader(pq_convert.frag   FRAG)
