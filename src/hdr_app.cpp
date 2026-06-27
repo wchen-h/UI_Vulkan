@@ -1,6 +1,7 @@
 #include "hdr_app.h"
 #include "vulkan_util.h"
 #include "texture.h"
+#include "cam16.h"
 
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
@@ -8,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 HDRApp::HDRApp(const std::string& assetPath) : assetPath_(assetPath) {}
 
@@ -19,6 +21,8 @@ HDRApp::~HDRApp() {
     if (quadVBMem_ != VK_NULL_HANDLE) vkFreeMemory(core_.device, quadVBMem_, nullptr);
     if (readbackBuf_ != VK_NULL_HANDLE) vkDestroyBuffer(core_.device, readbackBuf_, nullptr);
     if (readbackMem_ != VK_NULL_HANDLE) vkFreeMemory(core_.device, readbackMem_, nullptr);
+    if (cam16StagingBuf_ != VK_NULL_HANDLE) vkDestroyBuffer(core_.device, cam16StagingBuf_, nullptr);
+    if (cam16StagingMem_ != VK_NULL_HANDLE) vkFreeMemory(core_.device, cam16StagingMem_, nullptr);
 
     for (auto& p : uiPairs_) {
         if (p.rgb.view) vkDestroyImageView(core_.device, p.rgb.view, nullptr);
@@ -113,13 +117,22 @@ void HDRApp::init() {
     createCmdBuffersAndSync(wc_, core_);
     initImGuiForWindow(wc_, core_);
 
-    // Readback buffer for average luminance computation (host-visible)
+    // Readback buffer (kept for potential future use)
     {
-        VkDeviceSize readbackSize = (VkDeviceSize)wc_.swapchainExt.width * wc_.swapchainExt.height * 8; // R16G16B16A16 = 8 bytes/pixel
+        VkDeviceSize readbackSize = (VkDeviceSize)wc_.swapchainExt.width * wc_.swapchainExt.height * 8;
         createGPUBuffer(core_.device, core_.physicalDevice, readbackSize,
                         VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                         readbackBuf_, readbackMem_);
+    }
+
+    // CAM16 staging buffer (host-visible, stores adjusted PQ values for display)
+    {
+        VkDeviceSize stagingSize = (VkDeviceSize)wc_.swapchainExt.width * wc_.swapchainExt.height * 8; // R16G16B16A16 = 8 bytes/pixel
+        createGPUBuffer(core_.device, core_.physicalDevice, stagingSize,
+                        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                        cam16StagingBuf_, cam16StagingMem_);
     }
 
     std::cout << "[INFO] HDR window ready. Format: PQ+ST.2084" << std::endl;
@@ -159,98 +172,14 @@ void HDRApp::recordConvertPass(VkCommandBuffer cmd, uint32_t imageIdx) {
     vkCmdEndRenderPass(cmd);
 }
 
-float HDRApp::computeAvgMixedNit() {
-    if (uiPairs_.empty()) return 0.0f;
-    const auto& ui = uiPairs_[currentUI_];
-    if (ui.rawRGBA.empty() || ui.rawAlpha.empty()) return 0.0f;
-
-    float bgNitF = std::min((float)bgNit_, (float)maxNit_);
-
-    auto s2l = [](float c) -> float {
-        return c <= 0.04045f ? c / 12.92f : powf((c + 0.055f) / 1.055f, 2.4f);
-    };
-    auto pqEnc = [](float nit) -> float {
-        float y = nit / 10000.0f;
-        if (y <= 0.0f) return 0.0f;
-        float yPow = powf(y, 2610.0f / 16384.0f);
-        float num = 3424.0f / 4096.0f + (2413.0f / 128.0f) * yPow;
-        float den = 1.0f + (2392.0f / 128.0f) * yPow;
-        return powf(num / den, 2523.0f / 32.0f);
-    };
-    auto pqDec = [](float v) -> float {
-        if (v <= 0.0f) return 0.0f;
-        float vp = powf(v, 32.0f / 2523.0f);
-        float num = std::max(vp - 3424.0f / 4096.0f, 0.0f);
-        float den = (2413.0f / 128.0f) - (2392.0f / 128.0f) * vp;
-        if (den <= 0.0f) return 10000.0f;
-        return 10000.0f * powf(num / den, 16384.0f / 2610.0f);
-    };
-
-    double totalNit = 0.0;
-    int count = 0;
-
-    for (int i = 0; i < ui.width * ui.height; ++i) {
-        uint8_t a8 = ui.rawAlpha[i];
-        if (a8 == 0) continue;
-
-        float a = a8 / 255.0f;
-        float r = ui.rawRGBA[i * 4] / 255.0f;
-        float g = ui.rawRGBA[i * 4 + 1] / 255.0f;
-        float b = ui.rawRGBA[i * 4 + 2] / 255.0f;
-
-        float rl = s2l(r), gl = s2l(g), bl = s2l(b);
-        float rN709 = rl * 350.0f, gN709 = gl * 350.0f, bN709 = bl * 350.0f;
-
-        float rN = 0.627404f * rN709 + 0.329283f * gN709 + 0.043313f * bN709;
-        float gN = 0.069097f * rN709 + 0.919540f * gN709 + 0.011362f * bN709;
-        float bN = 0.016391f * rN709 + 0.088013f * gN709 + 0.895595f * bN709;
-
-        float effA = a * effAlpha_;
-        float invA = 1.0f - effA;
-        rN = rN * effA + bgNitF * invA;
-        gN = gN * effA + bgNitF * invA;
-        bN = bN * effA + bgNitF * invA;
-
-        float r10 = pqEnc(rN) * 1023.0f;
-        float g10 = pqEnc(gN) * 1023.0f;
-        float b10 = pqEnc(bN) * 1023.0f;
-
-        float Y = 0.2627f * r10 + 0.6780f * g10 + 0.0593f * b10;
-        float Cb = (-0.1396f * r10 - 0.3604f * g10 + 0.5000f * b10) + 512.0f;
-        float Cr = (0.5000f * r10 - 0.4598f * g10 - 0.0402f * b10) + 512.0f;
-
-        Y = Y * yScale_;
-        Cb = 512.0f + (Cb - 512.0f) * cbcrScale_;
-        Cr = 512.0f + (Cr - 512.0f) * cbcrScale_;
-
-        Y = std::clamp(Y, 0.0f, 1023.0f);
-        Cb = std::clamp(Cb, 0.0f, 1023.0f);
-        Cr = std::clamp(Cr, 0.0f, 1023.0f);
-
-        float R = Y + 1.4746f * (Cr - 512.0f);
-        float B = Y + 1.8814f * (Cb - 512.0f);
-        float G = (Y - 0.2627f * R - 0.0593f * B) / 0.6780f;
-        R = std::clamp(R, 0.0f, 1023.0f);
-        G = std::clamp(G, 0.0f, 1023.0f);
-        B = std::clamp(B, 0.0f, 1023.0f);
-
-        float rNit = pqDec(R / 1023.0f);
-        float gNit = pqDec(G / 1023.0f);
-        float bNit = pqDec(B / 1023.0f);
-
-        float lum = 0.2627f * rNit + 0.6780f * gNit + 0.0593f * bNit;
-        totalNit += lum;
-        count++;
-    }
-
-    return count > 0 ? (float)(totalNit / count) : 0.0f;
-}
-
 void HDRApp::hdrImGui() {
     ImGui::SetCurrentContext(wc_.imguiCtx);
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
+
+    static float prevQScale = 1.0f, prevAlpha = 1.0f, prevBgNit = 500;
+    static int   prevUI = -1;
 
     ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Once);
     ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_Once);
@@ -262,12 +191,14 @@ void HDRApp::hdrImGui() {
         ImGui::Text("Avg Luminance (raw): %.1f nit", uiPairs_[currentUI_].lumAvg * PAPER_WHITE_NIT);
         ImGui::Text("Avg Mixed Luminance: %.1f nit", avgMixedNit_);
     }
-    if (ImGui::Button("< Prev")) { currentUI_ = (currentUI_ + uiPairs_.size() - 1) % uiPairs_.size(); }
+    if (ImGui::Button("< Prev")) { currentUI_ = (currentUI_ + uiPairs_.size() - 1) % uiPairs_.size(); cam16Dirty_ = true; }
     ImGui::SameLine();
-    if (ImGui::Button("Next >")) { currentUI_ = (currentUI_ + 1) % uiPairs_.size(); }
+    if (ImGui::Button("Next >")) { currentUI_ = (currentUI_ + 1) % uiPairs_.size(); cam16Dirty_ = true; }
 
     ImGui::DragInt("Max Nit", &maxNit_, 1.0f, 100, 4000);
+    int prevBgNitVal = bgNit_;
     ImGui::DragInt("BG Nit",  &bgNit_,  1.0f, 0, maxNit_);
+    if (bgNit_ != prevBgNitVal) cam16Dirty_ = true;
 
     {
 float bgNitF = (float)bgNit_;
@@ -286,9 +217,10 @@ float bgNitF = (float)bgNit_;
 
     ImGui::Separator();
     ImGui::SliderFloat("Eff. Alpha", &effAlpha_, 0.0f, 1.0f);
-    ImGui::DragFloat("Y-Scale", &yScale_, 0.01f, 0.0f, 10.0f, "%.3f");
-    ImGui::DragFloat("CbCr-Scale", &cbcrScale_, 0.001f, 0.0f, 3.0f, "%.3f");
-    // TODO: Y-Max / CbCr-Max display (requires per-pixel YCbCr max computation)
+    ImGui::DragFloat("Q-Scale (CAM16)", &qScale_, 0.01f, 0.0f, 10.0f, "%.3f");
+    if (qScale_ != prevQScale) cam16Dirty_ = true;
+    if (effAlpha_ != prevAlpha) cam16Dirty_ = true;
+    ImGui::Text("Out-of-gamut pixels: %d", outOfGamutCount_);
     ImGui::PopItemWidth();
     ImGui::End();
 
@@ -302,81 +234,144 @@ void HDRApp::drawFrame() {
     vkWaitForFences(core_.device, 1, &wc.inFlight[wc.currentFrame], VK_TRUE, UINT64_MAX);
 
     // Read back previous frame's rendered result and compute average mixed luminance
-    if (readbackBuf_ != VK_NULL_HANDLE && !uiPairs_.empty()) {
+    // Also apply CAM16 adjustment if dirty
+    if (!uiPairs_.empty() && cam16StagingBuf_ != VK_NULL_HANDLE) {
         const auto& ui = uiPairs_[currentUI_];
-        if (!ui.rawRGBA.empty() && !ui.rawAlpha.empty()) {
-            VkDeviceSize bufSize = (VkDeviceSize)wc.swapchainExt.width * wc.swapchainExt.height * 8;
-            void* mapped = nullptr;
-            if (vkMapMemory(core_.device, readbackMem_, 0, bufSize, 0, &mapped) == VK_SUCCESS) {
-                // Intermediate is R16G16B16A16_SFLOAT = 4×half = 8 bytes/pixel
-                // hdr_ui.frag outputs PQ code values [0,1] in RGB (alpha=1.0)
-                const uint16_t* px = static_cast<const uint16_t*>(mapped);
-                int w = wc.swapchainExt.width;
-                int h = wc.swapchainExt.height;
+        if (!ui.rawRGBA.empty() && !ui.rawAlpha.empty() && cam16Dirty_) {
+            int w = wc.swapchainExt.width;
+            int h = wc.swapchainExt.height;
 
-                auto halfToFloat = [](uint16_t h) -> float {
-                    // IEEE 754 half float -> float
-                    int sign = (h >> 15) & 1;
-                    int exp  = (h >> 10) & 0x1f;
-                    int mant = h & 0x3ff;
-                    float val;
-                    if (exp == 0)      val = mant * 5.9604645e-08f;
-                    else if (exp == 31) val = mant ? 0.0f : 0.0f;
-                    else                val = ldexpf(1.0f + mant / 1024.0f, exp - 15);
-                    return sign ? -val : val;
-                };
-                auto pqDec = [](float v) -> float {
-                    if (v <= 0.0f) return 0.0f;
-                    float vp = powf(v, 32.0f / 2523.0f);
-                    float num = std::max(vp - 3424.0f / 4096.0f, 0.0f);
-                    float den = (2413.0f / 128.0f) - (2392.0f / 128.0f) * vp;
-                    if (den <= 0.0f) return 10000.0f;
-                    return 10000.0f * powf(num / den, 16384.0f / 2610.0f);
-                };
+            // Compute UI quad position (same logic as recordUIPass)
+            float scaleX, scaleY;
+            if (wc.pxPerMm > 0.0f) {
+                float physW = (float)ui.width * 25.4f / UI_REFERENCE_DPI;
+                float physH = (float)ui.height * 25.4f / UI_REFERENCE_DPI;
+                scaleX = physW / ((float)w / wc.pxPerMm);
+                scaleY = physH / ((float)h / wc.pxPerMm);
+            } else {
+                scaleX = (float)ui.width / (float)w;
+                scaleY = (float)ui.height / (float)h;
+            }
+            int quadW = (int)((float)w * scaleX);
+            int quadH = (int)((float)h * scaleY);
+            int quadX0 = (w - quadW) / 2;
+            int quadY0 = (h - quadH) / 2;
+
+            // Background PQ value (for alpha=0 pixels)
+            float bgNitF = std::min((float)bgNit_, (float)maxNit_);
+            float pqBg = pq_encode(bgNitF);
+
+            // CAM16 viewing conditions
+            CAM16ViewingConditions vc;
+            vc.XYZ_w[0] = 95.04f; vc.XYZ_w[1] = 100.0f; vc.XYZ_w[2] = 108.88f; // D65 scale=100
+            vc.L_A = bgNitF / 5.0f;      // adapting luminance ~20% of white
+            vc.Y_b = 100.0f * bgNitF / 350.0f; // background luminance factor
+            vc.F = 1.0f; vc.c = 0.69f; vc.N_c = 1.0f; // Average surround
+
+            CAM16Intermediate im;
+            cam16_precompute(vc, im);
+
+            // sRGB decode helper
+            auto s2l = [](float c) -> float {
+                return c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f);
+            };
+            // BT.709 -> BT.2020 matrix (same as hdr_ui.frag)
+            auto bt709_to_bt2020 = [](float r, float g, float b, float out[3]) {
+                out[0] = 0.627404f*r + 0.329283f*g + 0.043313f*b;
+                out[1] = 0.069097f*r + 0.919540f*g + 0.011362f*b;
+                out[2] = 0.016391f*r + 0.088013f*g + 0.895595f*b;
+            };
+            // float -> half-float (IEEE 754)
+            auto f2h = [](float f) -> uint16_t {
+                uint32_t bits;
+                std::memcpy(&bits, &f, 4);
+                uint16_t sign = (bits >> 16) & 0x8000;
+                int32_t exp = ((bits >> 23) & 0xff) - 127 + 15;
+                uint32_t mant = (bits >> 13) & 0x3ff;
+                if (exp <= 0) return sign;
+                if (exp >= 31) return sign | 0x7c00;
+                return sign | (exp << 10) | mant;
+            };
+
+            // Map staging buffer
+            VkDeviceSize bufSize = (VkDeviceSize)w * h * 8; // R16G16B16A16 = 8 bytes/pixel
+            void* mapped = nullptr;
+            if (vkMapMemory(core_.device, cam16StagingMem_, 0, bufSize, 0, &mapped) != VK_SUCCESS) {
+                // Failed to map, skip CAM16 processing this frame
+            } else {
+                uint16_t* px = static_cast<uint16_t*>(mapped);
+
+                // Fill entire buffer with background PQ value first
+                uint16_t pqBgHalf = f2h(pqBg);
+                for (int i = 0; i < w * h * 4; ++i)
+                    px[i] = (i % 4 == 3) ? f2h(1.0f) : pqBgHalf;
 
                 double totalNit = 0.0;
                 int count = 0;
+                outOfGamutCount_ = 0;
 
-                // The UI quad is centered in the window; compute its pixel range
-                float scaleX, scaleY;
-                if (wc.pxPerMm > 0.0f) {
-                    float physW = (float)ui.width * 25.4f / UI_REFERENCE_DPI;
-                    float physH = (float)ui.height * 25.4f / UI_REFERENCE_DPI;
-                    float winPhysW = (float)w / wc.pxPerMm;
-                    float winPhysH = (float)h / wc.pxPerMm;
-                    scaleX = physW / winPhysW;
-                    scaleY = physH / winPhysH;
-                } else {
-                    scaleX = (float)ui.width / (float)w;
-                    scaleY = (float)ui.height / (float)h;
-                }
-                int quadW = (int)((float)w * scaleX);
-                int quadH = (int)((float)h * scaleY);
-                int quadX0 = (w - quadW) / 2;
-                int quadY0 = (h - quadH) / 2;
-
+                // Process alpha!=0 pixels
                 for (int y = 0; y < quadH && y < ui.height; ++y) {
                     for (int x = 0; x < quadW && x < ui.width; ++x) {
                         int uiIdx = y * ui.width + x;
                         if (ui.rawAlpha[uiIdx] == 0) continue;
 
-                        int pxIdx = ((quadY0 + y) * w + (quadX0 + x)) * 4; // R16G16B16A16 = 4 halfs
-                        float rPQ = halfToFloat(px[pxIdx + 0]);
-                        float gPQ = halfToFloat(px[pxIdx + 1]);
-                        float bPQ = halfToFloat(px[pxIdx + 2]);
+                        float a = ui.rawAlpha[uiIdx] / 255.0f;
+                        float r = ui.rawRGBA[uiIdx * 4] / 255.0f;
+                        float g = ui.rawRGBA[uiIdx * 4 + 1] / 255.0f;
+                        float b = ui.rawRGBA[uiIdx * 4 + 2] / 255.0f;
 
-                        float rNit = pqDec(rPQ);
-                        float gNit = pqDec(gPQ);
-                        float bNit = pqDec(bPQ);
+                        // sRGB decode -> linear BT.709
+                        float rl = s2l(r), gl = s2l(g), bl = s2l(b);
 
+                        // x 350 -> nit BT.709
+                        float rN709 = rl * 350.0f, gN709 = gl * 350.0f, bN709 = bl * 350.0f;
+
+                        // BT.709 -> BT.2020
+                        float nit2020[3];
+                        bt709_to_bt2020(rN709, gN709, bN709, nit2020);
+
+                        // Mix with BG
+                        float effA = a * effAlpha_;
+                        float invA = 1.0f - effA;
+                        float mixedNit[3] = {
+                            nit2020[0] * effA + bgNitF * invA,
+                            nit2020[1] * effA + bgNitF * invA,
+                            nit2020[2] * effA + bgNitF * invA
+                        };
+
+                        // PQ encode -> 10-bit [0,1023]
+                        float rgb_pq_in[3] = {
+                            pq_encode(mixedNit[0]) * 1023.0f,
+                            pq_encode(mixedNit[1]) * 1023.0f,
+                            pq_encode(mixedNit[2]) * 1023.0f
+                        };
+
+                        // CAM16 adjust
+                        float rgb_pq_out[3];
+                        bool inGamut = cam16_adjust_pixel(rgb_pq_in, rgb_pq_out, qScale_, vc, im);
+                        if (!inGamut) outOfGamutCount_++;
+
+                        // Convert to [0,1] PQ and write as half-float
+                        int pxIdx = ((quadY0 + y) * w + (quadX0 + x)) * 4;
+                        px[pxIdx + 0] = f2h(rgb_pq_out[0] / 1023.0f);
+                        px[pxIdx + 1] = f2h(rgb_pq_out[1] / 1023.0f);
+                        px[pxIdx + 2] = f2h(rgb_pq_out[2] / 1023.0f);
+                        px[pxIdx + 3] = f2h(1.0f);
+
+                        // Compute luminance for avg display
+                        float rNit = pq_decode(rgb_pq_out[0] / 1023.0f);
+                        float gNit = pq_decode(rgb_pq_out[1] / 1023.0f);
+                        float bNit = pq_decode(rgb_pq_out[2] / 1023.0f);
                         float lum = 0.2627f * rNit + 0.6780f * gNit + 0.0593f * bNit;
                         totalNit += lum;
                         count++;
                     }
                 }
 
-                vkUnmapMemory(core_.device, readbackMem_);
+                vkUnmapMemory(core_.device, cam16StagingMem_);
                 avgMixedNit_ = count > 0 ? (float)(totalNit / count) : 0.0f;
+                cam16Dirty_ = false;
             }
         }
     }
@@ -397,28 +392,19 @@ void HDRApp::drawFrame() {
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(cmd, &bi);
 
-    // HDR: pass bgNit (for shader mixing) + PQ(bgNit) (for clear color)
-    float bgNitF = (float)bgNit_;
-    float y = std::min(bgNitF, (float)maxNit_) / 10000.0f;
-    float yPow = powf(y, 2610.0f/16384.0f);
-    float num = 3424.0f/4096.0f + (2413.0f/128.0f) * yPow;
-    float den = 1.0f + (2392.0f/128.0f) * yPow;
-    float pqBg = powf(num/den, 2523.0f/32.0f);
-    recordUIPass(wc, cmd, imageIdx, uiPairs_, currentUI_, quadVB_, bgNitF, effAlpha_, yScale_, cbcrScale_, pqBg);
-
-    // Copy linear intermediate to readback buffer for average luminance computation
-    if (readbackBuf_ != VK_NULL_HANDLE) {
+    // Copy CAM16 staging buffer -> linear intermediate image
+    if (cam16StagingBuf_ != VK_NULL_HANDLE) {
         VkImageMemoryBarrier b{};
         b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        b.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        b.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        b.srcAccessMask = 0;
+        b.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         b.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        b.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        b.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
         b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         b.image = wc.linearImg;
         b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                              VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &b);
 
         VkBufferImageCopy region{};
@@ -427,13 +413,12 @@ void HDRApp::drawFrame() {
         region.bufferImageHeight = wc.swapchainExt.height;
         region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
         region.imageExtent = {wc.swapchainExt.width, wc.swapchainExt.height, 1};
-        vkCmdCopyImageToBuffer(cmd, wc.linearImg, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                               readbackBuf_, 1, &region);
+        vkCmdCopyBufferToImage(cmd, cam16StagingBuf_, wc.linearImg,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
-        // Barrier back to SHADER_READ_ONLY for convert pass
-        b.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        b.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
         b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        b.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        b.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         b.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
         vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
                              VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &b);

@@ -88,6 +88,7 @@ set(ASSET_ABS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/pic/cropped_images)
 add_library(ui_vulkan_common STATIC
     src/vulkan_util.cpp
     src/texture.cpp
+    src/cam16.cpp
     ${IMGUI_SOURCES}
 )
 add_dependencies(ui_vulkan_common Shaders)
