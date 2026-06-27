@@ -218,6 +218,8 @@ void loadAssets(VulkanCore& core, std::vector<UIPair>& uiPairs,
     p.lumAvg   = ca>0 ? sl/ca : 0.01f;
         std::cout << "[AVG] " << key << " a=" << p.alphaAvg << " L=" << p.lumAvg << std::endl;
 
+        p.rawRGBA.assign(rpix, rpix + (size_t)wr*hr*4);
+        p.rawAlpha.assign(apix, apix + (size_t)wa*ha);
         stbi_image_free(rpix); stbi_image_free(apix);
         uiPairs.push_back(std::move(p));
     }

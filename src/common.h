@@ -33,6 +33,8 @@ struct UIPair {
     float       alphaAvg = 0.0f;
     float       lumAvg   = 0.0f;
     VkDescriptorSet uiDescSet = VK_NULL_HANDLE;
+    std::vector<uint8_t> rawRGBA;   // sRGB RGBA, 4 bytes/pixel (for CPU-side pipeline simulation)
+    std::vector<uint8_t> rawAlpha; // alpha, 1 byte/pixel
 };
 
 struct WindowContext {

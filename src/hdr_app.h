@@ -14,6 +14,7 @@ private:
     void drawFrame();
     void hdrImGui();
     void recordConvertPass(VkCommandBuffer cmd, uint32_t imageIdx);
+    float computeAvgMixedNit();
 
     VulkanCore core_;
     WindowContext wc_;
