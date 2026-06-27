@@ -28,6 +28,8 @@ private:
     float qScale_     = 1.0f;
     float avgMixedNit_ = 0.0f;
     int   outOfGamutCount_ = 0;
+    // Debug: center pixel nit values (pre-PQ-encode, linear brightness)
+    float dbgCenterNit_[3] = {0,0,0};  // R,G,B in nit, before PQ encode
     VkBuffer readbackBuf_ = VK_NULL_HANDLE;
     VkDeviceMemory readbackMem_ = VK_NULL_HANDLE;
     // CAM16 staging: CPU-computed adjusted PQ values, copied to swapchain
