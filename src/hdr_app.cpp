@@ -178,8 +178,7 @@ void HDRApp::hdrImGui() {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
-    static float prevQScale = 1.0f, prevAlpha = 1.0f, prevBgNit = 500;
-    static int   prevUI = -1;
+    static float prevQScale = 1.0f, prevAlpha = 1.0f;
 
     ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Once);
     ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_Once);
@@ -220,6 +219,8 @@ float bgNitF = (float)bgNit_;
     ImGui::DragFloat("Q-Scale (CAM16)", &qScale_, 0.01f, 0.0f, 10.0f, "%.3f");
     if (qScale_ != prevQScale) cam16Dirty_ = true;
     if (effAlpha_ != prevAlpha) cam16Dirty_ = true;
+    prevQScale = qScale_;
+    prevAlpha = effAlpha_;
     ImGui::Text("Out-of-gamut pixels: %d", outOfGamutCount_);
     ImGui::PopItemWidth();
     ImGui::End();
