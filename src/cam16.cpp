@@ -16,11 +16,11 @@ static const float M16[3][3] = {
     {-0.002079f,  0.048952f,  0.953127f}
 };
 
-// Inverse of CAT16 (computed from M16)
+// Inverse of CAT16 (computed with numpy.linalg.inv)
 static const float M16_inv[3][3] = {
-    { 1.862677f, -0.255739f,  0.050076f},  // precomputed inv
-    { 0.387527f,  0.697183f, -0.084711f},
-    {-0.015969f,  0.036264f,  1.048549f}
+    { 1.862068f, -1.011255f,  0.149187f},
+    { 0.387527f,  0.621447f, -0.008974f},
+    {-0.015841f, -0.034123f,  1.049964f}
 };
 
 // BT.2020 RGB -> XYZ matrix (D65 white, normalized so Y_white=1 when RGB=(1,1,1))

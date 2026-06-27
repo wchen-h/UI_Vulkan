@@ -310,10 +310,15 @@ void HDRApp::drawFrame() {
                 int count = 0;
                 outOfGamutCount_ = 0;
 
-                // Process alpha!=0 pixels
-                for (int y = 0; y < quadH && y < ui.height; ++y) {
-                    for (int x = 0; x < quadW && x < ui.width; ++x) {
-                        int uiIdx = y * ui.width + x;
+                // Process alpha!=0 pixels (UV-scaled sampling, same as shader texture sampling)
+                for (int y = 0; y < quadH; ++y) {
+                    for (int x = 0; x < quadW; ++x) {
+                        // Map quad pixel to UI image pixel (UV-based, same as shader)
+                        int uiX = (int)((float)x / quadW * ui.width);
+                        int uiY = (int)((float)y / quadH * ui.height);
+                        if (uiX >= ui.width) uiX = ui.width - 1;
+                        if (uiY >= ui.height) uiY = ui.height - 1;
+                        int uiIdx = uiY * ui.width + uiX;
                         if (ui.rawAlpha[uiIdx] == 0) continue;
 
                         float a = ui.rawAlpha[uiIdx] / 255.0f;
