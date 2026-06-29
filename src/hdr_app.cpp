@@ -286,16 +286,6 @@ float bgNitF = (float)bgNit_;
 
     ImGui::Separator();
     ImGui::SliderFloat("Eff. Alpha", &effAlpha_, 0.0f, 2.0f);
-    // Compute and display effective alpha for center pixel
-    if (!uiPairs_.empty()) {
-        const auto& ui = uiPairs_[currentUI_];
-        int cx = ui.width / 2, cy = ui.height / 2;
-        if (cx >= 0 && cx < ui.width && cy >= 0 && cy < ui.height) {
-            float texAlpha = ui.rawAlpha[cy * ui.width + cx] / 255.0f;
-            dbgEffAlpha_ = std::clamp(texAlpha * std::min(effAlpha_, 1.0f) + std::max(0.0f, effAlpha_ - 1.0f), 0.0f, 1.0f);
-        }
-    }
-    ImGui::Text("Current UI alpha (center): %.3f", dbgEffAlpha_);
     ImGui::DragFloat("Y-Scale", &yScale_, 0.01f, 0.0f, 10.0f, "%.3f");
     ImGui::DragFloat("CbCr-Scale", &cbcrScale_, 0.001f, 0.0f, 3.0f, "%.3f");
     ImGui::PopItemWidth();
