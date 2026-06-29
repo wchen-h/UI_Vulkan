@@ -89,7 +89,13 @@ void main() {
 
     // 8. Adjust Y and CbCr (only for pixels with original alpha != 0)
     if (texAlpha > 0.0) {
-        ycbcr.x = ycbcr.x * fpc.yScale;
+        // Gray detection: chroma = max(|Cb-512|, |Cr-512|)
+        // Near-gray pixels (chroma < 20) get reduced Y-Scale to avoid blowing out to white
+        float chroma = max(abs(ycbcr.y - 512.0), abs(ycbcr.z - 512.0));
+        float grayFactor = 1.0 - smoothstep(0.0, 20.0, chroma);  // 1=pure gray, 0=colorful
+        float grayYScale = 1.0 + 0.1 * (fpc.yScale - 1.0);       // gray gets 10% of scaling
+        float effectiveYScale = mix(fpc.yScale, grayYScale, grayFactor);
+        ycbcr.x = ycbcr.x * effectiveYScale;
         ycbcr.y = 512.0 + (ycbcr.y - 512.0) * fpc.cbcrScale;
         ycbcr.z = 512.0 + (ycbcr.z - 512.0) * fpc.cbcrScale;
     }
