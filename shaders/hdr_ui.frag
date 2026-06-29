@@ -105,7 +105,11 @@ void main() {
 
     // 12. Mix with BG in LINEAR domain (BG at original brightness, not scaled)
     // Eff.Alpha > 1.0: additive boost (slider-1 added to texAlpha), clamped to 1.0
-    float effAlpha = clamp(texAlpha * min(fpc.alpha, 1.0) + max(0.0, fpc.alpha - 1.0), 0.0, 1.0);
+    // texAlpha=0 的像素始终保持透明
+    float effAlpha = 0.0;
+    if (texAlpha > 0.0) {
+        effAlpha = clamp(texAlpha * min(fpc.alpha, 1.0) + max(0.0, fpc.alpha - 1.0), 0.0, 1.0);
+    }
     vec3  bgNit    = vec3(fpc.bgNit);
     vec3  mixed    = uiAdjNit * effAlpha + bgNit * (1.0 - effAlpha);
 
