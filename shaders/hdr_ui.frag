@@ -104,7 +104,8 @@ void main() {
     vec3 uiAdjNit = pqDecode(pq_adj);
 
     // 12. Mix with BG in LINEAR domain (BG at original brightness, not scaled)
-    float effAlpha = texAlpha * fpc.alpha;
+    // Eff.Alpha > 1.0: additive boost (slider-1 added to texAlpha), clamped to 1.0
+    float effAlpha = clamp(texAlpha * min(fpc.alpha, 1.0) + max(0.0, fpc.alpha - 1.0), 0.0, 1.0);
     vec3  bgNit    = vec3(fpc.bgNit);
     vec3  mixed    = uiAdjNit * effAlpha + bgNit * (1.0 - effAlpha);
 
