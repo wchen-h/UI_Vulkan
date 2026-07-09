@@ -226,7 +226,7 @@ void loadAssets(VulkanCore& core, std::vector<UIPair>& uiPairs,
     std::cout << "[ASSET] Loaded " << uiPairs.size() << " pairs." << std::endl;
 }
 
-UITexture loadBackgroundTexture(VulkanCore& core, const std::string& path, float& avgNit) {
+UITexture loadBackgroundTexture(VulkanCore& core, const std::string& path, float& avgNit, bool hdr) {
     UITexture bg;
     int w, h, ch;
     stbi_uc* pixels = stbi_load(path.c_str(), &w, &h, &ch, 4);
@@ -248,13 +248,24 @@ UITexture loadBackgroundTexture(VulkanCore& core, const std::string& path, float
         float g = pixels[i * 4 + 1] / 255.0f;
         float b = pixels[i * 4 + 2] / 255.0f;
         float rl = srgb2lin(r), gl = srgb2lin(g), bl = srgb2lin(b);
-        float Y = 0.2126f * rl + 0.7152f * gl + 0.0722f * bl;
-        totalNit += Y * PAPER_WHITE_NIT;
+
+        if (hdr) {
+            // Same pipeline as hdr_ui.frag: sRGB→linear→×350→BT.2020 matrix→BT.2020 luma
+            float rN = rl * PAPER_WHITE_NIT, gN = gl * PAPER_WHITE_NIT, bN = bl * PAPER_WHITE_NIT;
+            float r2 = 0.627404f*rN + 0.329283f*gN + 0.043313f*bN;
+            float g2 = 0.069097f*rN + 0.919540f*gN + 0.088013f*bN;
+            float b2 = 0.016391f*rN + 0.088013f*gN + 0.895595f*bN;
+            totalNit += 0.2627f * r2 + 0.6780f * g2 + 0.0593f * b2;
+        } else {
+            // SDR: BT.709 luma (no BT.2020 conversion in shader)
+            float Y = 0.2126f * rl + 0.7152f * gl + 0.0722f * bl;
+            totalNit += Y * PAPER_WHITE_NIT;
+        }
     }
     avgNit = n > 0 ? (float)(totalNit / n) : 0.0f;
 
     std::cout << "[BG] " << path << " " << w << "x" << h
-              << " avgNit=" << avgNit << std::endl;
+              << " avgNit=" << avgNit << (hdr ? " (BT.2020)" : " (BT.709)") << std::endl;
 
     stbi_image_free(pixels);
     return bg;

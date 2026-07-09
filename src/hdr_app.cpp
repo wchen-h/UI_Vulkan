@@ -60,7 +60,7 @@ void HDRApp::init() {
     if (uiPairs_.empty()) std::cerr << "[WARN] No UI assets loaded from " << assetPath_ << std::endl;
 
     // Load background texture
-    bgTexture_ = loadBackgroundTexture(core_, std::string(BG_IMAGE_DIR) + "/Frame_9498_rotate.png", bgAvgNit_);
+    bgTexture_ = loadBackgroundTexture(core_, std::string(BG_IMAGE_DIR) + "/Frame_9498_rotate.png", bgAvgNit_, true);
     bgNit_ = (int)bgAvgNit_;
 
     for (auto& p : uiPairs_) {
