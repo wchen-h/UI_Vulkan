@@ -29,6 +29,10 @@ HDRApp::~HDRApp() {
         if (p.alpha.mem)  vkFreeMemory(core_.device, p.alpha.mem, nullptr);
     }
 
+    if (bgTexture_.view) vkDestroyImageView(core_.device, bgTexture_.view, nullptr);
+    if (bgTexture_.img)  vkDestroyImage(core_.device, bgTexture_.img, nullptr);
+    if (bgTexture_.mem)  vkFreeMemory(core_.device, bgTexture_.mem, nullptr);
+
     cleanupWindow(wc_, core_);
 
     if (core_.uiDescPool)  vkDestroyDescriptorPool(core_.device, core_.uiDescPool, nullptr);
@@ -55,6 +59,10 @@ void HDRApp::init() {
     loadAssets(core_, uiPairs_, assetPath_);
     if (uiPairs_.empty()) std::cerr << "[WARN] No UI assets loaded from " << assetPath_ << std::endl;
 
+    // Load background texture
+    bgTexture_ = loadBackgroundTexture(core_, std::string(BG_IMAGE_DIR) + "/Frame_9498_rotate.png", bgAvgNit_);
+    bgNit_ = (int)bgAvgNit_;
+
     for (auto& p : uiPairs_) {
         VkDescriptorSetAllocateInfo ai{};
         ai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -73,7 +81,12 @@ void HDRApp::init() {
         alphaInfo.imageView = p.alpha.view;
         alphaInfo.sampler = core_.texSampler;
 
-        VkWriteDescriptorSet writes[2] = {};
+        VkDescriptorImageInfo bgInfo{};
+        bgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        bgInfo.imageView = bgTexture_.view;
+        bgInfo.sampler = core_.texSampler;
+
+        VkWriteDescriptorSet writes[3] = {};
         writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         writes[0].dstSet = p.uiDescSet;
         writes[0].dstBinding = 0;
@@ -86,7 +99,13 @@ void HDRApp::init() {
         writes[1].descriptorCount = 1;
         writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         writes[1].pImageInfo = &alphaInfo;
-        vkUpdateDescriptorSets(core_.device, 2, writes, 0, nullptr);
+        writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[2].dstSet = p.uiDescSet;
+        writes[2].dstBinding = 2;
+        writes[2].descriptorCount = 1;
+        writes[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[2].pImageInfo = &bgInfo;
+        vkUpdateDescriptorSets(core_.device, 3, writes, 0, nullptr);
     }
 
     createQuadBuffer(core_, quadVB_, quadVBMem_);
@@ -268,21 +287,7 @@ void HDRApp::hdrImGui() {
 
     ImGui::DragInt("Max Nit", &maxNit_, 1.0f, 100, 4000);
     ImGui::DragInt("BG Nit",  &bgNit_,  1.0f, 0, maxNit_);
-
-    {
-float bgNitF = (float)bgNit_;
-    float maxNitF = (float)maxNit_;
-    float clampedNit = std::min(bgNitF, maxNitF);
-    float y = clampedNit / 10000.0f;
-    float yPow = powf(y, 2610.0f/16384.0f);
-    float num = 3424.0f/4096.0f + (2413.0f/128.0f) * yPow;
-    float den = 1.0f + (2392.0f/128.0f) * yPow;
-    float pqVal = powf(num/den, 2523.0f/32.0f);
-    int code10 = (int)(pqVal * 1023.0f);
-    ImGui::Text("BG PQ: %d/1023  (%d nit -> clamped %.0f)", code10, bgNit_, clampedNit);
-    if (clampedNit < bgNitF)
-        ImGui::TextColored(ImVec4(1,0.5f,0,1), "  ^ clamped by MaxNit");
-    }
+    ImGui::Text("BG Avg Nit: %.1f  Multiplier: %.4f", bgAvgNit_, bgAvgNit_ > 0 ? (float)bgNit_ / bgAvgNit_ : 0.0f);
 
     ImGui::Separator();
     ImGui::SliderFloat("Eff. Alpha", &effAlpha_, 0.0f, 2.0f);
@@ -396,14 +401,9 @@ void HDRApp::drawFrame() {
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(cmd, &bi);
 
-    // HDR: pass bgNit (for shader mixing) + PQ(bgNit) (for clear color)
-    float bgNitF = (float)bgNit_;
-    float y = std::min(bgNitF, (float)maxNit_) / 10000.0f;
-    float yPow = powf(y, 2610.0f/16384.0f);
-    float num = 3424.0f/4096.0f + (2413.0f/128.0f) * yPow;
-    float den = 1.0f + (2392.0f/128.0f) * yPow;
-    float pqBg = powf(num/den, 2523.0f/32.0f);
-    recordUIPass(wc, cmd, imageIdx, uiPairs_, currentUI_, quadVB_, bgNitF, effAlpha_, yScale_, cbcrScale_, pqBg);
+    // HDR: compute bg multiplier from slider value and avg nit
+    float bgMultiplier = bgAvgNit_ > 0.0f ? (float)bgNit_ / bgAvgNit_ : 0.0f;
+    recordUIPass(wc, cmd, imageIdx, uiPairs_, currentUI_, quadVB_, bgMultiplier, effAlpha_, yScale_, cbcrScale_);
 
     // Copy linear intermediate to readback buffer for average luminance computation
     if (readbackBuf_ != VK_NULL_HANDLE) {

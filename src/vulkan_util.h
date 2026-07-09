@@ -45,7 +45,7 @@ void createQuadBuffer(VulkanCore& core, VkBuffer& buf, VkDeviceMemory& mem);
 
 void recordUIPass(WindowContext& wc, VkCommandBuffer cmd, uint32_t imageIdx,
                    const std::vector<UIPair>& uiPairs, int currentUI,
-                   VkBuffer quadVB, float bgLinear, float alpha, float yScale,
-                   float cbcrScale, float clearValue);
+                   VkBuffer quadVB, float bgMultiplier, float alpha, float yScale,
+                   float cbcrScale);
 void recordImGuiPass(WindowContext& wc, VkCommandBuffer cmd, uint32_t imageIdx);
 void cleanupWindow(WindowContext& wc, VulkanCore& core);

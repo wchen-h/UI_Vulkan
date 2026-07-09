@@ -24,6 +24,10 @@ SDRApp::~SDRApp() {
         if (p.alpha.mem)  vkFreeMemory(core_.device, p.alpha.mem, nullptr);
     }
 
+    if (bgTexture_.view) vkDestroyImageView(core_.device, bgTexture_.view, nullptr);
+    if (bgTexture_.img)  vkDestroyImage(core_.device, bgTexture_.img, nullptr);
+    if (bgTexture_.mem)  vkFreeMemory(core_.device, bgTexture_.mem, nullptr);
+
     cleanupWindow(wc_, core_);
 
     if (core_.uiDescPool)  vkDestroyDescriptorPool(core_.device, core_.uiDescPool, nullptr);
@@ -50,6 +54,10 @@ void SDRApp::init() {
     loadAssets(core_, uiPairs_, assetPath_);
     if (uiPairs_.empty()) std::cerr << "[WARN] No UI assets loaded from " << assetPath_ << std::endl;
 
+    // Load background texture and compute fixed multiplier for 63 nit target
+    bgTexture_ = loadBackgroundTexture(core_, std::string(BG_IMAGE_DIR) + "/Frame_9498_rotate.png", bgAvgNit_);
+    bgMultiplier_ = bgAvgNit_ > 0.0f ? (BG_GRAY * PAPER_WHITE_NIT) / bgAvgNit_ : 0.0f;
+
     for (auto& p : uiPairs_) {
         VkDescriptorSetAllocateInfo ai{};
         ai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -68,7 +76,12 @@ void SDRApp::init() {
         alphaInfo.imageView = p.alpha.view;
         alphaInfo.sampler = core_.texSampler;
 
-        VkWriteDescriptorSet writes[2] = {};
+        VkDescriptorImageInfo bgInfo{};
+        bgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        bgInfo.imageView = bgTexture_.view;
+        bgInfo.sampler = core_.texSampler;
+
+        VkWriteDescriptorSet writes[3] = {};
         writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         writes[0].dstSet = p.uiDescSet;
         writes[0].dstBinding = 0;
@@ -81,7 +94,13 @@ void SDRApp::init() {
         writes[1].descriptorCount = 1;
         writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         writes[1].pImageInfo = &alphaInfo;
-        vkUpdateDescriptorSets(core_.device, 2, writes, 0, nullptr);
+        writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[2].dstSet = p.uiDescSet;
+        writes[2].dstBinding = 2;
+        writes[2].descriptorCount = 1;
+        writes[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[2].pImageInfo = &bgInfo;
+        vkUpdateDescriptorSets(core_.device, 3, writes, 0, nullptr);
     }
 
     createQuadBuffer(core_, quadVB_, quadVBMem_);
@@ -160,14 +179,13 @@ void SDRApp::sdrImGui() {
         ImGui::Text("UI: %s", uiPairs_[currentUI_].name.c_str());
         ImGui::Text("Size: %dx%d", uiPairs_[currentUI_].width, uiPairs_[currentUI_].height);
         ImGui::Text("Alpha avg: %.3f", uiPairs_[currentUI_].alphaAvg);
-        ImGui::Text("BG: 18%% gray @ %.0f nit = %.0f nit actual", PAPER_WHITE_NIT, BG_GRAY * PAPER_WHITE_NIT);
+        ImGui::Text("BG Avg Nit: %.1f  Target: %.0f nit  Multiplier: %.4f",
+                    bgAvgNit_, BG_GRAY * PAPER_WHITE_NIT, bgMultiplier_);
     }
     if (ImGui::Button("< Prev")) { currentUI_ = (currentUI_ + uiPairs_.size() - 1) % uiPairs_.size(); }
     ImGui::SameLine();
     if (ImGui::Button("Next >")) { currentUI_ = (currentUI_ + 1) % uiPairs_.size(); }
     ImGui::SliderFloat("Alpha", &sdrAlpha_, 0.1f, 1.0f, "%.1f");
-    ImGui::Text("BG: 18%% gray @ paperWhite %.0f nit = %.0f nit actual",
-                PAPER_WHITE_NIT, BG_GRAY * PAPER_WHITE_NIT);
     ImGui::PopItemWidth();
     ImGui::End();
 
@@ -196,8 +214,7 @@ void SDRApp::drawFrame() {
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(cmd, &bi);
 
-    float bgLinear = BG_GRAY;
-    recordUIPass(wc, cmd, imageIdx, uiPairs_, currentUI_, quadVB_, bgLinear, sdrAlpha_, 1.0f, 1.0f, bgLinear);
+    recordUIPass(wc, cmd, imageIdx, uiPairs_, currentUI_, quadVB_, bgMultiplier_, sdrAlpha_, 1.0f, 1.0f);
     recordConvertPass(cmd, imageIdx);
     recordImGuiPass(wc, cmd, imageIdx);
 

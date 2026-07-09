@@ -389,7 +389,7 @@ std::vector<const char*> devExts;
     sci.maxLod = 1.0f;
     vkCreateSampler(core.device, &sci, nullptr, &core.texSampler);
 
-    VkDescriptorSetLayoutBinding uiBindings[2] = {};
+    VkDescriptorSetLayoutBinding uiBindings[3] = {};
     uiBindings[0].binding = 0;
     uiBindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     uiBindings[0].descriptorCount = 1;
@@ -398,16 +398,20 @@ std::vector<const char*> devExts;
     uiBindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     uiBindings[1].descriptorCount = 1;
     uiBindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    uiBindings[2].binding = 2;
+    uiBindings[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    uiBindings[2].descriptorCount = 1;
+    uiBindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
     VkDescriptorSetLayoutCreateInfo dslci{};
     dslci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    dslci.bindingCount = 2;
+    dslci.bindingCount = 3;
     dslci.pBindings = uiBindings;
     vkCreateDescriptorSetLayout(core.device, &dslci, nullptr, &core.uiDescLayout);
 
     VkDescriptorPoolSize dps{};
     dps.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    dps.descriptorCount = 200;
+    dps.descriptorCount = 300;
     VkDescriptorPoolCreateInfo dpci{};
     dpci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     dpci.maxSets = 100;
@@ -822,7 +826,7 @@ void createUIPipeline(WindowContext& wc, VulkanCore& core, VkBuffer quadVB,
 
     VkPushConstantRange pcRange{};
     pcRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-    pcRange.offset = 0; pcRange.size = 32;
+    pcRange.offset = 0; pcRange.size = 48;
 
     VkDescriptorSetLayout layouts[1] = {core.uiDescLayout};
     VkPipelineLayoutCreateInfo plci{};
@@ -1030,34 +1034,48 @@ void createQuadBuffer(VulkanCore& core, VkBuffer& buf, VkDeviceMemory& mem) {
 
 void recordUIPass(WindowContext& wc, VkCommandBuffer cmd, uint32_t imageIdx,
                    const std::vector<UIPair>& uiPairs, int currentUI,
-                   VkBuffer quadVB, float bgLinear, float alpha, float yScale,
-                   float cbcrScale, float clearValue) {
+                   VkBuffer quadVB, float bgMultiplier, float alpha, float yScale,
+                   float cbcrScale) {
     if (uiPairs.empty()) return;
     const auto& ui = uiPairs[currentUI];
     if (ui.uiDescSet == VK_NULL_HANDLE) return;
 
-    float scaleX, scaleY;
+    // Compute UI area as fraction of screen (same logic as old quad scale, but in UV space)
+    float fracX, fracY;
     if (wc.pxPerMm > 0.0f) {
-        // Keep UI at a fixed physical size (mm) regardless of window size.
         float physW = (float)ui.width  * 25.4f / UI_REFERENCE_DPI;
         float physH = (float)ui.height * 25.4f / UI_REFERENCE_DPI;
         float winPhysW = (float)wc.swapchainExt.width  / wc.pxPerMm;
         float winPhysH = (float)wc.swapchainExt.height / wc.pxPerMm;
-        scaleX = 2.0f * physW / winPhysW;
-        scaleY = 2.0f * physH / winPhysH;
+        fracX = physW / winPhysW;
+        fracY = physH / winPhysH;
     } else {
-        scaleX = 2.0f * (float)ui.width  / (float)wc.swapchainExt.width;
-        scaleY = 2.0f * (float)ui.height / (float)wc.swapchainExt.height;
+        fracX = (float)ui.width  / (float)wc.swapchainExt.width;
+        fracY = (float)ui.height / (float)wc.swapchainExt.height;
     }
-    float pcData[8] = {
-        0.0f, 0.0f,
-        scaleX, scaleY,
-        alpha, bgLinear, yScale,
-        cbcrScale,
+    // UI rect in screen-UV [0,1] space (centered)
+    float uiOffX = (1.0f - fracX) * 0.5f;
+    float uiOffY = (1.0f - fracY) * 0.5f;
+
+    // Push constants: 48 bytes
+    //   [0-7]   vertex offset (vec2) = (0,0) for full-screen
+    //   [8-15]  vertex scale  (vec2) = (2,2) for full-screen (verts are ±0.5)
+    //   [16-19] alpha
+    //   [20-23] bgMultiplier
+    //   [24-27] yScale
+    //   [28-31] cbcrScale
+    //   [32-39] uiOffset (vec2)
+    //   [40-47] uiScale  (vec2)
+    float pcData[12] = {
+        0.0f, 0.0f,           // vertex offset
+        2.0f, 2.0f,           // vertex scale (full-screen)
+        alpha, bgMultiplier, yScale, cbcrScale,
+        uiOffX, uiOffY,       // UI area offset in screen UV
+        fracX, fracY,         // UI area scale in screen UV
     };
 
     VkClearValue clearVal{};
-    clearVal.color = {{clearValue, clearValue, clearValue, 1.0f}};
+    clearVal.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
 
     VkRenderPassBeginInfo rpbi{};
     rpbi.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -1081,7 +1099,7 @@ void recordUIPass(WindowContext& wc, VkCommandBuffer cmd, uint32_t imageIdx,
                              wc.uiPipeLayout, 0, 1, &ui.uiDescSet, 0, nullptr);
     vkCmdPushConstants(cmd, wc.uiPipeLayout,
                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                        0, 32, pcData);
+                        0, 48, pcData);
 
     VkDeviceSize offsets[1] = {0};
     vkCmdBindVertexBuffers(cmd, 0, 1, &quadVB, offsets);

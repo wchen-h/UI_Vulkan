@@ -225,3 +225,37 @@ void loadAssets(VulkanCore& core, std::vector<UIPair>& uiPairs,
     }
     std::cout << "[ASSET] Loaded " << uiPairs.size() << " pairs." << std::endl;
 }
+
+UITexture loadBackgroundTexture(VulkanCore& core, const std::string& path, float& avgNit) {
+    UITexture bg;
+    int w, h, ch;
+    stbi_uc* pixels = stbi_load(path.c_str(), &w, &h, &ch, 4);
+    if (!pixels) {
+        std::cerr << "[ERROR] Failed to load background: " << path << std::endl;
+        avgNit = 0.0f;
+        return bg;
+    }
+
+    uploadTexture(core, w, h, VK_FORMAT_R8G8B8A8_SRGB, pixels,
+                  bg.img, bg.mem, bg.view);
+    bg.width = w;
+    bg.height = h;
+
+    double totalNit = 0.0;
+    int n = w * h;
+    for (int i = 0; i < n; ++i) {
+        float r = pixels[i * 4]     / 255.0f;
+        float g = pixels[i * 4 + 1] / 255.0f;
+        float b = pixels[i * 4 + 2] / 255.0f;
+        float rl = srgb2lin(r), gl = srgb2lin(g), bl = srgb2lin(b);
+        float Y = 0.2126f * rl + 0.7152f * gl + 0.0722f * bl;
+        totalNit += Y * PAPER_WHITE_NIT;
+    }
+    avgNit = n > 0 ? (float)(totalNit / n) : 0.0f;
+
+    std::cout << "[BG] " << path << " " << w << "x" << h
+              << " avgNit=" << avgNit << std::endl;
+
+    stbi_image_free(pixels);
+    return bg;
+}

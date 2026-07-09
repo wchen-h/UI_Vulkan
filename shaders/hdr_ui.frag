@@ -1,18 +1,22 @@
-// HDR merged shader: UI adjustment (BT.2020 PQ YCbCr) + then mix with BG
+// HDR merged shader: UI adjustment (BT.2020 PQ YCbCr) + then mix with BG texture
 // Key: adjust UI brightness/chroma BEFORE mixing with background
 //      so background is never affected by Y-Scale/CbCr-Scale
+// Full-screen quad: bg fills entire window, UI drawn on top in centered area
 
 #version 450
 
 layout(binding = 0) uniform sampler2D texRGB;    // sRGB texture -> hardware decodes to linear
 layout(binding = 1) uniform sampler2D texAlpha;  // linear alpha texture
+layout(binding = 2) uniform sampler2D texBG;     // background image (sRGB -> linear BT.709)
 
 layout(push_constant) uniform FragPush {
-    // bytes 0-15: vertex (offset + scale) — shared range
-    layout(offset = 16) float alpha;       // effAlpha (UI opacity multiplier)
-    layout(offset = 20) float bgNit;       // background brightness in nit
-    layout(offset = 24) float yScale;      // Y scale factor (1.0 = no change)
-    layout(offset = 28) float cbcrScale;   // CbCr scale factor (1.0 = no change)
+    // bytes 0-15: vertex (offset + scale) — full-screen: offset=(0,0), scale=(2,2)
+    layout(offset = 16) float alpha;         // effAlpha (UI opacity multiplier)
+    layout(offset = 20) float bgMultiplier;  // background brightness multiplier
+    layout(offset = 24) float yScale;       // Y scale factor (1.0 = no change)
+    layout(offset = 28) float cbcrScale;     // CbCr scale factor (1.0 = no change)
+    layout(offset = 32) vec2  uiOffset;      // UI area bottom-left in screen UV [0,1]
+    layout(offset = 40) vec2  uiScale;       // UI area size in screen UV [0,1]
 } fpc;
 
 layout(location = 0) in vec2 fragUV;
@@ -75,19 +79,35 @@ vec3 ycbcr2rgb(vec3 ycbcr) {
 }
 
 void main() {
-    // 1. Sample UI (sRGB -> linear BT.709)
-    vec3  uiRGB    = texture(texRGB, fragUV).rgb;
-    float texAlpha = texture(texAlpha, fragUV).r;
+    // 1. Sample background (sRGB -> linear BT.709, stretched to fill screen)
+    vec3 bgRGB   = texture(texBG, fragUV).rgb;
+    vec3 bgNit   = BT709_TO_BT2020 * (bgRGB * PAPER_WHITE_NIT);
+    bgNit = bgNit * fpc.bgMultiplier;
 
-    // 2-3. UI -> BT.2020 nit (NO mixing with BG yet)
+    // 2. Compute UI UV from full-screen UV
+    vec2 uiUV = (fragUV - fpc.uiOffset) / fpc.uiScale;
+    bool insideUI = (uiUV.x >= 0.0 && uiUV.x <= 1.0 &&
+                     uiUV.y >= 0.0 && uiUV.y <= 1.0);
+
+    if (!insideUI) {
+        // Outside UI area: just show scaled background
+        outColor = vec4(linearToPQ(bgNit), 1.0);
+        return;
+    }
+
+    // 3. Sample UI (sRGB -> linear BT.709)
+    vec3  uiRGB    = texture(texRGB, uiUV).rgb;
+    float texAlpha = texture(texAlpha, uiUV).r;
+
+    // 4-5. UI -> BT.2020 nit (NO mixing with BG yet)
     vec3 uiNit709  = uiRGB * PAPER_WHITE_NIT;
     vec3 uiNit2020 = BT709_TO_BT2020 * uiNit709;
 
-    // 4-5. PQ encode UI only -> 10-bit
+    // 6-7. PQ encode UI only -> 10-bit
     vec3 pq    = linearToPQ(uiNit2020);
     vec3 rgb10 = pq * 1023.0;
 
-    // 6-7. YCbCr + adjustment (UI only, BG not involved)
+    // 8-9. YCbCr + adjustment (UI only, BG not involved)
     vec3 ycbcr = rgb2ycbcr(rgb10);
     if (texAlpha > 0.0) {
         ycbcr.x = ycbcr.x * fpc.yScale;
@@ -95,24 +115,23 @@ void main() {
         ycbcr.z = 512.0 + (ycbcr.z - 512.0) * fpc.cbcrScale;
     }
 
-    // 8-10. Clamp + YCbCr->RGB + /1023 -> PQ
+    // 10-12. Clamp + YCbCr->RGB + /1023 -> PQ
     ycbcr = clamp(ycbcr, vec3(0.0), vec3(1023.0));
     vec3 rgb10_adj = ycbcr2rgb(ycbcr);
     vec3 pq_adj = rgb10_adj / 1023.0;
 
-    // 11. PQ decode -> linear nit (adjusted UI, BG not touched)
+    // 13. PQ decode -> linear nit (adjusted UI, BG not touched)
     vec3 uiAdjNit = pqDecode(pq_adj);
 
-    // 12. Mix with BG in LINEAR domain (BG at original brightness, not scaled)
+    // 14. Mix with BG in LINEAR domain
     // Eff.Alpha > 1.0: additive boost (slider-1 added to texAlpha), clamped to 1.0
     // texAlpha=0 的像素始终保持透明
     float effAlpha = 0.0;
     if (texAlpha > 0.0) {
         effAlpha = clamp(texAlpha * min(fpc.alpha, 1.0) + max(0.0, fpc.alpha - 1.0), 0.0, 1.0);
     }
-    vec3  bgNit    = vec3(fpc.bgNit);
-    vec3  mixed    = uiAdjNit * effAlpha + bgNit * (1.0 - effAlpha);
+    vec3  mixed = uiAdjNit * effAlpha + bgNit * (1.0 - effAlpha);
 
-    // 13. PQ encode -> output
+    // 15. PQ encode -> output
     outColor = vec4(linearToPQ(mixed), 1.0);
 }

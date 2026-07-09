@@ -83,6 +83,7 @@ add_shader(pq_convert.frag   FRAG)
 add_custom_target(Shaders DEPENDS ${SHADER_SPV_FILES})
 
 set(ASSET_ABS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/pic/cropped_images)
+set(BG_IMAGE_ABS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/pic)
 
 # === Shared static library ===
 add_library(ui_vulkan_common STATIC
@@ -104,6 +105,7 @@ target_link_libraries(ui_vulkan_common PUBLIC
 )
 target_compile_definitions(ui_vulkan_common PRIVATE
     ASSET_DIR="${ASSET_ABS_DIR}"
+    BG_IMAGE_DIR="${BG_IMAGE_ABS_DIR}"
     SHADER_DIR="${SHADER_BUILD_DIR}/"
 )
 if(WIN32)
@@ -122,6 +124,7 @@ target_include_directories(UI_Vulkan_SDR PRIVATE
 )
 target_compile_definitions(UI_Vulkan_SDR PRIVATE
     ASSET_DIR="${ASSET_ABS_DIR}"
+    BG_IMAGE_DIR="${BG_IMAGE_ABS_DIR}"
     SHADER_DIR="${SHADER_BUILD_DIR}/"
 )
 if(WIN32)
@@ -140,6 +143,7 @@ target_include_directories(UI_Vulkan_HDR PRIVATE
 )
 target_compile_definitions(UI_Vulkan_HDR PRIVATE
     ASSET_DIR="${ASSET_ABS_DIR}"
+    BG_IMAGE_DIR="${BG_IMAGE_ABS_DIR}"
     SHADER_DIR="${SHADER_BUILD_DIR}/"
 )
 if(WIN32)
