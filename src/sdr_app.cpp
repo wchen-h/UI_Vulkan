@@ -67,13 +67,9 @@ void SDRApp::init() {
             namespace fs = std::filesystem;
             for (auto& e : fs::directory_iterator(BG_IMAGE_DIR)) {
                 std::string fn = e.path().filename().string();
-                std::cout << "[BG]   found: " << fn << std::endl;
-                if (fn.size() > 12) {
-                    std::string ext = fn.substr(fn.size()-12);
-                    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-                    if (ext == "_rotate.png")
-                        bgFiles.push_back(fn);
-                }
+                std::cout << "[BG]   found: " << fn << " (len=" << fn.size() << ")" << std::endl;
+                if (fn.find("_rotate.png") != std::string::npos)
+                    bgFiles.push_back(fn);
             }
         } catch (const std::exception& ex) {
             std::cerr << "[BG] ERROR scanning directory: " << ex.what() << std::endl;
