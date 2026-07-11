@@ -2,7 +2,9 @@
 #include "vulkan_util.h"
 #include "texture.h"
 
-#include <imgui.h>
+#include <algorithm>
+#include <cmath>
+#include <filesystem>
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_vulkan.h>
 
@@ -24,9 +26,11 @@ SDRApp::~SDRApp() {
         if (p.alpha.mem)  vkFreeMemory(core_.device, p.alpha.mem, nullptr);
     }
 
-    if (bgTexture_.view) vkDestroyImageView(core_.device, bgTexture_.view, nullptr);
-    if (bgTexture_.img)  vkDestroyImage(core_.device, bgTexture_.img, nullptr);
-    if (bgTexture_.mem)  vkFreeMemory(core_.device, bgTexture_.mem, nullptr);
+    for (auto& bg : bgTextures_) {
+        if (bg.view) vkDestroyImageView(core_.device, bg.view, nullptr);
+        if (bg.img)  vkDestroyImage(core_.device, bg.img, nullptr);
+        if (bg.mem)  vkFreeMemory(core_.device, bg.mem, nullptr);
+    }
 
     cleanupWindow(wc_, core_);
 
@@ -54,10 +58,46 @@ void SDRApp::init() {
     loadAssets(core_, uiPairs_, assetPath_);
     if (uiPairs_.empty()) std::cerr << "[WARN] No UI assets loaded from " << assetPath_ << std::endl;
 
-    // Load background texture and compute fixed multiplier for 63 nit target
-    bgTexture_ = loadBackgroundTexture(core_, std::string(BG_IMAGE_DIR) + "/Frame_13958_rotate.png", bgAvgNit_, false, bgRawRGBA_);
-    bgWidth_ = bgTexture_.width;
-    bgHeight_ = bgTexture_.height;
+    // Load all *_rotate.png backgrounds + white
+    {
+        std::cout << "[BG] Scanning: " << BG_IMAGE_DIR << std::endl;
+        std::vector<std::string> bgFiles;
+        try {
+            namespace fs = std::filesystem;
+            for (auto& e : fs::directory_iterator(BG_IMAGE_DIR)) {
+                std::string fn = e.path().filename().string();
+                std::cout << "[BG]   found: " << fn << " (len=" << fn.size() << ")" << std::endl;
+                if (fn.find("_rotate.png") != std::string::npos)
+                    bgFiles.push_back(fn);
+            }
+        } catch (const std::exception& ex) {
+            std::cerr << "[BG] ERROR scanning directory: " << ex.what() << std::endl;
+        }
+        std::sort(bgFiles.begin(), bgFiles.end());
+
+        for (auto& fn : bgFiles) {
+            float avgNit;
+            std::vector<uint8_t> raw;
+            std::string fullPath = std::string(BG_IMAGE_DIR) + "/" + fn;
+            UITexture tex = loadBackgroundTexture(core_, fullPath, avgNit, false, raw);
+            if (tex.view == VK_NULL_HANDLE) continue;
+            bgTextures_.push_back(tex);
+            bgRawList_.push_back(std::move(raw));
+            bgWList_.push_back(tex.width);
+            bgHList_.push_back(tex.height);
+            bgNames_.push_back(fn);
+        }
+
+        uint8_t whitePix[4] = {255, 255, 255, 255};
+        std::vector<uint8_t> whiteRaw;
+        UITexture whiteTex = createSolidTexture(core_, 64, 64, whitePix, whiteRaw);
+        bgTextures_.push_back(whiteTex);
+        bgRawList_.push_back(std::move(whiteRaw));
+        bgWList_.push_back(64);
+        bgHList_.push_back(64);
+        bgNames_.push_back("White");
+        currentBG_ = 0;
+    }
 
     for (auto& p : uiPairs_) {
         VkDescriptorSetAllocateInfo ai{};
@@ -79,7 +119,7 @@ void SDRApp::init() {
 
         VkDescriptorImageInfo bgInfo{};
         bgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        bgInfo.imageView = bgTexture_.view;
+        bgInfo.imageView = bgTextures_[currentBG_].view;
         bgInfo.sampler = core_.texSampler;
 
         VkWriteDescriptorSet writes[3] = {};
@@ -109,6 +149,7 @@ void SDRApp::init() {
     initWindowSwapchain(wc_, core_);
     createRenderPasses(wc_, core_.device);
     computeLocalAvgNit();
+    updateBGDescriptorSets();
 
     VkSamplerCreateInfo sci{};
     sci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -181,12 +222,16 @@ void SDRApp::sdrImGui() {
         ImGui::Text("UI: %s", uiPairs_[currentUI_].name.c_str());
         ImGui::Text("Size: %dx%d", uiPairs_[currentUI_].width, uiPairs_[currentUI_].height);
         ImGui::Text("Alpha avg: %.3f", uiPairs_[currentUI_].alphaAvg);
-        ImGui::Text("BG Global: %.1f nit  Local: %.1f nit  Multiplier: %.4f",
-                    bgAvgNit_, localAvgNit_, bgMultiplier_);
+        ImGui::Text("Local: %.1f nit  Multiplier: %.4f", localAvgNit_, bgMultiplier_);
     }
     if (ImGui::Button("< Prev")) { currentUI_ = (currentUI_ + uiPairs_.size() - 1) % uiPairs_.size(); computeLocalAvgNit(); }
     ImGui::SameLine();
     if (ImGui::Button("Next >")) { currentUI_ = (currentUI_ + 1) % uiPairs_.size(); computeLocalAvgNit(); }
+    ImGui::SameLine();
+    if (ImGui::Button("Next BG")) { switchBackground(); }
+    if (!bgNames_.empty()) {
+        ImGui::Text("BG: %s (%d/%d)", bgNames_[currentBG_].c_str(), currentBG_+1, (int)bgTextures_.size());
+    }
     ImGui::SliderFloat("FG Alpha", &sdrFgAlpha_, 0.1f, 1.0f, "%.1f");
     ImGui::SliderFloat("BG Alpha", &sdrBgAlpha_, 0.1f, 1.0f, "%.1f");
     ImGui::PopItemWidth();
@@ -195,8 +240,37 @@ void SDRApp::sdrImGui() {
     ImGui::Render();
 }
 
+void SDRApp::updateBGDescriptorSets() {
+    if (bgTextures_.empty()) return;
+    for (auto& p : uiPairs_) {
+        VkDescriptorImageInfo bgInfo{};
+        bgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        bgInfo.imageView = bgTextures_[currentBG_].view;
+        bgInfo.sampler = core_.texSampler;
+        VkWriteDescriptorSet write{};
+        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet = p.uiDescSet;
+        write.dstBinding = 2;
+        write.descriptorCount = 1;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.pImageInfo = &bgInfo;
+        vkUpdateDescriptorSets(core_.device, 1, &write, 0, nullptr);
+    }
+}
+
+void SDRApp::switchBackground() {
+    if (bgTextures_.empty()) return;
+    currentBG_ = (currentBG_ + 1) % bgTextures_.size();
+    updateBGDescriptorSets();
+    computeLocalAvgNit();
+}
+
 void SDRApp::computeLocalAvgNit() {
-    if (uiPairs_.empty() || bgRawRGBA_.empty() || bgWidth_ == 0 || bgHeight_ == 0) return;
+    if (uiPairs_.empty() || bgTextures_.empty()) return;
+    const auto& raw = bgRawList_[currentBG_];
+    int bgW = bgWList_[currentBG_];
+    int bgH = bgHList_[currentBG_];
+    if (raw.empty() || bgW == 0 || bgH == 0) return;
     const auto& ui = uiPairs_[currentUI_];
 
     float fracX, fracY;
@@ -217,11 +291,14 @@ void SDRApp::computeLocalAvgNit() {
     float loY = std::max(0.0f, 0.5f - fracY);
     float hiY = std::min(1.0f, 0.5f + fracY);
 
-    int bx0 = (int)(loX * bgWidth_);
-    int bx1 = (int)(hiX * bgWidth_);
-    int by0 = (int)(loY * bgHeight_);
-    int by1 = (int)(hiY * bgHeight_);
-    if (bx0 >= bx1 || by0 >= by1) { localAvgNit_ = bgAvgNit_; bgMultiplier_ = bgAvgNit_ > 0 ? (BG_GRAY * PAPER_WHITE_NIT) / bgAvgNit_ : 0; return; }
+    int bx0 = (int)(loX * bgW);
+    int bx1 = (int)(hiX * bgW);
+    int by0 = (int)(loY * bgH);
+    int by1 = (int)(hiY * bgH);
+    if (bx0 >= bx1) { bx0 = 0; bx1 = bgW; }
+    if (by0 >= by1) { by0 = 0; by1 = bgH; }
+    if (bx1 > bgW) bx1 = bgW;
+    if (by1 > bgH) by1 = bgH;
 
     auto s2l = [](float c) -> float {
         return c <= 0.04045f ? c / 12.92f : powf((c + 0.055f) / 1.055f, 2.4f);
@@ -231,17 +308,17 @@ void SDRApp::computeLocalAvgNit() {
     int count = 0;
     for (int y = by0; y < by1; ++y) {
         for (int x = bx0; x < bx1; ++x) {
-            int idx = (y * bgWidth_ + x) * 4;
-            float r = bgRawRGBA_[idx]     / 255.0f;
-            float g = bgRawRGBA_[idx + 1] / 255.0f;
-            float b = bgRawRGBA_[idx + 2] / 255.0f;
+            int idx = (y * bgW + x) * 4;
+            float r = raw[idx]     / 255.0f;
+            float g = raw[idx + 1] / 255.0f;
+            float b = raw[idx + 2] / 255.0f;
             float rl = s2l(r), gl = s2l(g), bl = s2l(b);
             float Y = 0.2126f * rl + 0.7152f * gl + 0.0722f * bl;
             totalNit += Y * PAPER_WHITE_NIT;
             count++;
         }
     }
-    localAvgNit_ = count > 0 ? (float)(totalNit / count) : bgAvgNit_;
+    localAvgNit_ = count > 0 ? (float)(totalNit / count) : 0.0f;
     bgMultiplier_ = localAvgNit_ > 0.0f ? (BG_GRAY * PAPER_WHITE_NIT) / localAvgNit_ : 0.0f;
     std::cout << "[LocalAvg] UI=" << currentUI_ << " region=[" << (bx1-bx0) << "x" << (by1-by0)
               << "] localAvg=" << localAvgNit_ << " multiplier=" << bgMultiplier_ << std::endl;

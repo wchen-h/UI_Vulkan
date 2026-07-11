@@ -16,6 +16,8 @@ private:
     void recordConvertPass(VkCommandBuffer cmd, uint32_t imageIdx);
     float computeAvgMixedNit();
     void computeLocalAvgNit();
+    void switchBackground();
+    void updateBGDescriptorSets();
 
     VulkanCore core_;
     WindowContext wc_;
@@ -31,10 +33,11 @@ private:
     float bgYScale_  = 1.0f;
     float cbcrScale_ = 1.0f;
     float avgMixedNit_ = 0.0f;
-    UITexture bgTexture_;
-    float bgAvgNit_ = 0.0f;
-    std::vector<uint8_t> bgRawRGBA_;
-    int bgWidth_ = 0, bgHeight_ = 0;
+    std::vector<UITexture> bgTextures_;
+    std::vector<std::vector<uint8_t>> bgRawList_;
+    std::vector<int> bgWList_, bgHList_;
+    std::vector<std::string> bgNames_;
+    int currentBG_ = 0;
     float localAvgNit_ = 0.0f;
     VkBuffer readbackBuf_ = VK_NULL_HANDLE;
     VkDeviceMemory readbackMem_ = VK_NULL_HANDLE;

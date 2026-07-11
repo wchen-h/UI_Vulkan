@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 
 HDRApp::HDRApp(const std::string& assetPath) : assetPath_(assetPath) {}
 
@@ -29,9 +30,11 @@ HDRApp::~HDRApp() {
         if (p.alpha.mem)  vkFreeMemory(core_.device, p.alpha.mem, nullptr);
     }
 
-    if (bgTexture_.view) vkDestroyImageView(core_.device, bgTexture_.view, nullptr);
-    if (bgTexture_.img)  vkDestroyImage(core_.device, bgTexture_.img, nullptr);
-    if (bgTexture_.mem)  vkFreeMemory(core_.device, bgTexture_.mem, nullptr);
+    for (auto& bg : bgTextures_) {
+        if (bg.view) vkDestroyImageView(core_.device, bg.view, nullptr);
+        if (bg.img)  vkDestroyImage(core_.device, bg.img, nullptr);
+        if (bg.mem)  vkFreeMemory(core_.device, bg.mem, nullptr);
+    }
 
     cleanupWindow(wc_, core_);
 
@@ -59,11 +62,52 @@ void HDRApp::init() {
     loadAssets(core_, uiPairs_, assetPath_);
     if (uiPairs_.empty()) std::cerr << "[WARN] No UI assets loaded from " << assetPath_ << std::endl;
 
-    // Load background texture
-    bgTexture_ = loadBackgroundTexture(core_, std::string(BG_IMAGE_DIR) + "/Frame_13958_rotate.png", bgAvgNit_, true, bgRawRGBA_);
-    bgWidth_ = bgTexture_.width;
-    bgHeight_ = bgTexture_.height;
-    bgNit_ = (int)bgAvgNit_;
+    // Load all *_rotate.png backgrounds + white
+    {
+        std::cout << "[BG] Scanning: " << BG_IMAGE_DIR << std::endl;
+        std::vector<std::string> bgFiles;
+        try {
+            namespace fs = std::filesystem;
+            for (auto& e : fs::directory_iterator(BG_IMAGE_DIR)) {
+                std::string fn = e.path().filename().string();
+                std::cout << "[BG]   found: " << fn << " (len=" << fn.size() << ")" << std::endl;
+                if (fn.find("_rotate.png") != std::string::npos)
+                    bgFiles.push_back(fn);
+            }
+        } catch (const std::exception& ex) {
+            std::cerr << "[BG] ERROR scanning directory: " << ex.what() << std::endl;
+        }
+        std::sort(bgFiles.begin(), bgFiles.end());
+        std::cout << "[BG] Found " << bgFiles.size() << " _rotate.png files" << std::endl;
+
+        for (auto& fn : bgFiles) {
+            float avgNit;
+            std::vector<uint8_t> raw;
+            std::string fullPath = std::string(BG_IMAGE_DIR) + "/" + fn;
+            UITexture tex = loadBackgroundTexture(core_, fullPath, avgNit, true, raw);
+            if (tex.view == VK_NULL_HANDLE) {
+                std::cerr << "[BG] FAILED to load: " << fullPath << std::endl;
+                continue;
+            }
+            bgTextures_.push_back(tex);
+            bgRawList_.push_back(std::move(raw));
+            bgWList_.push_back(tex.width);
+            bgHList_.push_back(tex.height);
+            bgNames_.push_back(fn);
+            std::cout << "[BG] Loaded " << fn << " avgNit=" << avgNit << std::endl;
+        }
+
+        // White background (sRGB 255,255,255 = 350 nit/chan, 64×64)
+        uint8_t whitePix[4] = {255, 255, 255, 255};
+        std::vector<uint8_t> whiteRaw;
+        UITexture whiteTex = createSolidTexture(core_, 64, 64, whitePix, whiteRaw);
+        bgTextures_.push_back(whiteTex);
+        bgRawList_.push_back(std::move(whiteRaw));
+        bgWList_.push_back(64);
+        bgHList_.push_back(64);
+        bgNames_.push_back("White");
+        currentBG_ = 0;
+    }
 
     for (auto& p : uiPairs_) {
         VkDescriptorSetAllocateInfo ai{};
@@ -85,7 +129,7 @@ void HDRApp::init() {
 
         VkDescriptorImageInfo bgInfo{};
         bgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        bgInfo.imageView = bgTexture_.view;
+        bgInfo.imageView = bgTextures_[currentBG_].view;
         bgInfo.sampler = core_.texSampler;
 
         VkWriteDescriptorSet writes[3] = {};
@@ -116,6 +160,7 @@ void HDRApp::init() {
     createRenderPasses(wc_, core_.device);
     computeLocalAvgNit();
     bgNit_ = (int)localAvgNit_;
+    updateBGDescriptorSets();
 
     VkSamplerCreateInfo sci{};
     sci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -288,11 +333,15 @@ void HDRApp::hdrImGui() {
     if (ImGui::Button("< Prev")) { currentUI_ = (currentUI_ + uiPairs_.size() - 1) % uiPairs_.size(); computeLocalAvgNit(); }
     ImGui::SameLine();
     if (ImGui::Button("Next >")) { currentUI_ = (currentUI_ + 1) % uiPairs_.size(); computeLocalAvgNit(); }
+    ImGui::SameLine();
+    if (ImGui::Button("Next BG")) { switchBackground(); }
 
     ImGui::DragInt("Max Nit", &maxNit_, 1.0f, 100, 4000);
     ImGui::DragInt("BG Nit",  &bgNit_,  1.0f, 0, maxNit_);
-    ImGui::Text("BG Global Avg: %.1f nit  Local Avg: %.1f nit", bgAvgNit_, localAvgNit_);
-    ImGui::Text("BG Multiplier: %.4f", localAvgNit_ > 0 ? (float)bgNit_ / localAvgNit_ : 0.0f);
+    if (!bgNames_.empty()) {
+        ImGui::Text("BG: %s (%d/%d)", bgNames_[currentBG_].c_str(), currentBG_+1, (int)bgTextures_.size());
+    }
+    ImGui::Text("Local Avg: %.1f nit  Multiplier: %.4f", localAvgNit_, localAvgNit_ > 0 ? (float)bgNit_ / localAvgNit_ : 0.0f);
 
     ImGui::Separator();
     ImGui::Text("Foreground UI (alpha > 0.5)");
@@ -310,11 +359,39 @@ void HDRApp::hdrImGui() {
     ImGui::Render();
 }
 
+void HDRApp::updateBGDescriptorSets() {
+    if (bgTextures_.empty()) return;
+    for (auto& p : uiPairs_) {
+        VkDescriptorImageInfo bgInfo{};
+        bgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        bgInfo.imageView = bgTextures_[currentBG_].view;
+        bgInfo.sampler = core_.texSampler;
+        VkWriteDescriptorSet write{};
+        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet = p.uiDescSet;
+        write.dstBinding = 2;
+        write.descriptorCount = 1;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.pImageInfo = &bgInfo;
+        vkUpdateDescriptorSets(core_.device, 1, &write, 0, nullptr);
+    }
+}
+
+void HDRApp::switchBackground() {
+    if (bgTextures_.empty()) return;
+    currentBG_ = (currentBG_ + 1) % bgTextures_.size();
+    updateBGDescriptorSets();
+    computeLocalAvgNit();
+}
+
 void HDRApp::computeLocalAvgNit() {
-    if (uiPairs_.empty() || bgRawRGBA_.empty() || bgWidth_ == 0 || bgHeight_ == 0) return;
+    if (uiPairs_.empty() || bgTextures_.empty()) return;
+    const auto& raw = bgRawList_[currentBG_];
+    int bgW = bgWList_[currentBG_];
+    int bgH = bgHList_[currentBG_];
+    if (raw.empty() || bgW == 0 || bgH == 0) return;
     const auto& ui = uiPairs_[currentUI_];
 
-    // Compute UI quad fraction of screen (same as recordUIPass)
     float fracX, fracY;
     if (wc_.pxPerMm > 0.0f) {
         float physW = (float)ui.width  * 25.4f / UI_REFERENCE_DPI;
@@ -328,17 +405,19 @@ void HDRApp::computeLocalAvgNit() {
         fracY = (float)ui.height / (float)wc_.swapchainExt.height;
     }
 
-    // Local region = 2× linear (4× area), centered, clamped to [0,1]
     float loX = std::max(0.0f, 0.5f - fracX);
     float hiX = std::min(1.0f, 0.5f + fracX);
     float loY = std::max(0.0f, 0.5f - fracY);
     float hiY = std::min(1.0f, 0.5f + fracY);
 
-    int bx0 = (int)(loX * bgWidth_);
-    int bx1 = (int)(hiX * bgWidth_);
-    int by0 = (int)(loY * bgHeight_);
-    int by1 = (int)(hiY * bgHeight_);
-    if (bx0 >= bx1 || by0 >= by1) { localAvgNit_ = bgAvgNit_; return; }
+    int bx0 = (int)(loX * bgW);
+    int bx1 = (int)(hiX * bgW);
+    int by0 = (int)(loY * bgH);
+    int by1 = (int)(hiY * bgH);
+    if (bx0 >= bx1) { bx0 = 0; bx1 = bgW; }
+    if (by0 >= by1) { by0 = 0; by1 = bgH; }
+    if (bx1 > bgW) bx1 = bgW;
+    if (by1 > bgH) by1 = bgH;
 
     auto s2l = [](float c) -> float {
         return c <= 0.04045f ? c / 12.92f : powf((c + 0.055f) / 1.055f, 2.4f);
@@ -348,10 +427,10 @@ void HDRApp::computeLocalAvgNit() {
     int count = 0;
     for (int y = by0; y < by1; ++y) {
         for (int x = bx0; x < bx1; ++x) {
-            int idx = (y * bgWidth_ + x) * 4;
-            float r = bgRawRGBA_[idx]     / 255.0f;
-            float g = bgRawRGBA_[idx + 1] / 255.0f;
-            float b = bgRawRGBA_[idx + 2] / 255.0f;
+            int idx = (y * bgW + x) * 4;
+            float r = raw[idx]     / 255.0f;
+            float g = raw[idx + 1] / 255.0f;
+            float b = raw[idx + 2] / 255.0f;
             float rl = s2l(r), gl = s2l(g), bl = s2l(b);
             // BT.2020 luma (same as shader pipeline)
             float rN = rl * PAPER_WHITE_NIT, gN = gl * PAPER_WHITE_NIT, bN = bl * PAPER_WHITE_NIT;
@@ -362,9 +441,9 @@ void HDRApp::computeLocalAvgNit() {
             count++;
         }
     }
-    localAvgNit_ = count > 0 ? (float)(totalNit / count) : bgAvgNit_;
-    std::cout << "[LocalAvg] UI=" << currentUI_ << " region=[" << (bx1-bx0) << "x" << (by1-by0)
-              << "] localAvg=" << localAvgNit_ << " globalAvg=" << bgAvgNit_ << std::endl;
+    localAvgNit_ = count > 0 ? (float)(totalNit / count) : 0.0f;
+    std::cout << "[LocalAvg] UI=" << currentUI_ << " BG=" << currentBG_
+              << "] localAvg=" << localAvgNit_ << std::endl;
 }
 
 void HDRApp::drawFrame() {

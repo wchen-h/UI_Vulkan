@@ -273,3 +273,20 @@ UITexture loadBackgroundTexture(VulkanCore& core, const std::string& path, float
     stbi_image_free(pixels);
     return bg;
 }
+
+UITexture createSolidTexture(VulkanCore& core, int w, int h, const uint8_t rgba[4],
+                             std::vector<uint8_t>& rawRGBA) {
+    UITexture tex;
+    rawRGBA.resize((size_t)w * h * 4);
+    for (size_t i = 0; i < (size_t)w * h; ++i) {
+        rawRGBA[i*4]   = rgba[0];
+        rawRGBA[i*4+1] = rgba[1];
+        rawRGBA[i*4+2] = rgba[2];
+        rawRGBA[i*4+3] = rgba[3];
+    }
+    uploadTexture(core, w, h, VK_FORMAT_R8G8B8A8_SRGB, rawRGBA.data(),
+                  tex.img, tex.mem, tex.view);
+    tex.width = w;
+    tex.height = h;
+    return tex;
+}
