@@ -59,21 +59,37 @@ void SDRApp::init() {
     loadAssets(core_, uiPairs_, assetPath_);
     if (uiPairs_.empty()) std::cerr << "[WARN] No UI assets loaded from " << assetPath_ << std::endl;
 
-    // Scan and load all *_rotate.png backgrounds + white
+    // Load all *_rotate.png backgrounds + white
     {
-        namespace fs = std::filesystem;
+        std::cout << "[BG] Scanning: " << BG_IMAGE_DIR << std::endl;
         std::vector<std::string> bgFiles;
-        for (auto& e : fs::directory_iterator(BG_IMAGE_DIR)) {
-            std::string fn = e.path().filename().string();
-            if (fn.size() > 12 && fn.substr(fn.size()-12) == "_rotate.png")
-                bgFiles.push_back(fn);
+        try {
+            namespace fs = std::filesystem;
+            for (auto& e : fs::directory_iterator(BG_IMAGE_DIR)) {
+                std::string fn = e.path().filename().string();
+                std::cout << "[BG]   found: " << fn << std::endl;
+                if (fn.size() > 12) {
+                    std::string ext = fn.substr(fn.size()-12);
+                    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+                    if (ext == "_rotate.png")
+                        bgFiles.push_back(fn);
+                }
+            }
+        } catch (const std::exception& ex) {
+            std::cerr << "[BG] ERROR scanning directory: " << ex.what() << std::endl;
         }
         std::sort(bgFiles.begin(), bgFiles.end());
+        std::cout << "[BG] Found " << bgFiles.size() << " _rotate.png files" << std::endl;
 
         for (auto& fn : bgFiles) {
             float avgNit;
             std::vector<uint8_t> raw;
-            UITexture tex = loadBackgroundTexture(core_, std::string(BG_IMAGE_DIR) + "/" + fn, avgNit, false, raw);
+            std::string fullPath = std::string(BG_IMAGE_DIR) + "/" + fn;
+            UITexture tex = loadBackgroundTexture(core_, fullPath, avgNit, false, raw);
+            if (tex.view == VK_NULL_HANDLE) {
+                std::cerr << "[BG] FAILED to load: " << fullPath << std::endl;
+                continue;
+            }
             bgTextures_.push_back(tex);
             bgRawList_.push_back(std::move(raw));
             bgWList_.push_back(tex.width);
