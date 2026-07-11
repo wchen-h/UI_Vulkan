@@ -64,7 +64,6 @@ void HDRApp::init() {
     bgWidth_ = bgTexture_.width;
     bgHeight_ = bgTexture_.height;
     bgNit_ = (int)bgAvgNit_;
-    computeLocalAvgNit();
 
     for (auto& p : uiPairs_) {
         VkDescriptorSetAllocateInfo ai{};
@@ -115,6 +114,7 @@ void HDRApp::init() {
 
     initWindowSwapchain(wc_, core_);
     createRenderPasses(wc_, core_.device);
+    computeLocalAvgNit();
 
     VkSamplerCreateInfo sci{};
     sci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;

@@ -58,7 +58,6 @@ void SDRApp::init() {
     bgTexture_ = loadBackgroundTexture(core_, std::string(BG_IMAGE_DIR) + "/Frame_13958_rotate.png", bgAvgNit_, false, bgRawRGBA_);
     bgWidth_ = bgTexture_.width;
     bgHeight_ = bgTexture_.height;
-    computeLocalAvgNit();
 
     for (auto& p : uiPairs_) {
         VkDescriptorSetAllocateInfo ai{};
@@ -109,6 +108,7 @@ void SDRApp::init() {
 
     initWindowSwapchain(wc_, core_);
     createRenderPasses(wc_, core_.device);
+    computeLocalAvgNit();
 
     VkSamplerCreateInfo sci{};
     sci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
