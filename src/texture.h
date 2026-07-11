@@ -9,3 +9,5 @@ void transitionLayout(VkDevice dev, VkCommandPool cmdPool, VkQueue queue,
 void loadAssets(VulkanCore& core, std::vector<UIPair>& uiPairs, const std::string& assetPath);
 UITexture loadBackgroundTexture(VulkanCore& core, const std::string& path, float& avgNit, bool hdr,
                                 std::vector<uint8_t>& rawRGBA);
+UITexture createSolidTexture(VulkanCore& core, int w, int h, const uint8_t rgba[4],
+                             std::vector<uint8_t>& rawRGBA);

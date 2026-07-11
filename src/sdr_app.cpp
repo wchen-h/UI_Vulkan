@@ -82,55 +82,14 @@ void SDRApp::init() {
             std::cout << "[BG] Loaded " << fn << " avgNit=" << avgNit << std::endl;
         }
 
-        // White background
+        // White background (64×64)
         uint8_t whitePix[4] = {255, 255, 255, 255};
-        UITexture whiteTex;
-        {
-            createImage(core_.device, core_.physicalDevice, 1, 1,
-                        VK_FORMAT_R8G8B8A8_SRGB,
-                        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                        whiteTex.img, whiteTex.mem);
-            VkBuffer stag; VkDeviceMemory stagM;
-            VkBufferCreateInfo bci{}; bci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-            bci.size = 4; bci.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-            vkCreateBuffer(core_.device, &bci, nullptr, &stag);
-            VkMemoryRequirements mr; vkGetBufferMemoryRequirements(core_.device, stag, &mr);
-            VkMemoryAllocateInfo mai{}; mai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-            mai.allocationSize = mr.size;
-            mai.memoryTypeIndex = findMemoryType(core_.physicalDevice, mr.memoryTypeBits,
-                                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-            vkAllocateMemory(core_.device, &mai, nullptr, &stagM);
-            vkBindBufferMemory(core_.device, stag, stagM, 0);
-            void* m; vkMapMemory(core_.device, stagM, 0, 4, 0, &m);
-            memcpy(m, whitePix, 4); vkUnmapMemory(core_.device, stagM);
-            transitionLayout(core_.device, core_.sharedCmdPool, core_.graphicsQueue,
-                             whiteTex.img, VK_FORMAT_R8G8B8A8_SRGB,
-                             VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-            VkCommandBuffer cmd;
-            VkCommandBufferAllocateInfo ai2{}; ai2.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-            ai2.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY; ai2.commandPool = core_.sharedCmdPool; ai2.commandBufferCount = 1;
-            vkAllocateCommandBuffers(core_.device, &ai2, &cmd);
-            VkCommandBufferBeginInfo bi2{}; bi2.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-            bi2.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-            vkBeginCommandBuffer(cmd, &bi2);
-            VkBufferImageCopy region{}; region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};
-            region.imageExtent = {1,1,1};
-            vkCmdCopyBufferToImage(cmd, stag, whiteTex.img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-            vkEndCommandBuffer(cmd);
-            VkSubmitInfo si{}; si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO; si.commandBufferCount = 1; si.pCommandBuffers = &cmd;
-            vkQueueSubmit(core_.graphicsQueue, 1, &si, VK_NULL_HANDLE); vkQueueWaitIdle(core_.graphicsQueue);
-            vkFreeCommandBuffers(core_.device, core_.sharedCmdPool, 1, &cmd);
-            transitionLayout(core_.device, core_.sharedCmdPool, core_.graphicsQueue,
-                             whiteTex.img, VK_FORMAT_R8G8B8A8_SRGB,
-                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            whiteTex.view = createImageView(core_.device, whiteTex.img, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT);
-            whiteTex.width = 1; whiteTex.height = 1;
-            vkDestroyBuffer(core_.device, stag, nullptr); vkFreeMemory(core_.device, stagM, nullptr);
-        }
+        std::vector<uint8_t> whiteRaw;
+        UITexture whiteTex = createSolidTexture(core_, 64, 64, whitePix, whiteRaw);
         bgTextures_.push_back(whiteTex);
-        bgRawList_.push_back(std::vector<uint8_t>(whitePix, whitePix + 4));
-        bgWList_.push_back(1);
-        bgHList_.push_back(1);
+        bgRawList_.push_back(std::move(whiteRaw));
+        bgWList_.push_back(64);
+        bgHList_.push_back(64);
         bgNames_.push_back("White");
         currentBG_ = 0;
     }
@@ -332,7 +291,10 @@ void SDRApp::computeLocalAvgNit() {
     int bx1 = (int)(hiX * bgW);
     int by0 = (int)(loY * bgH);
     int by1 = (int)(hiY * bgH);
-    if (bx0 >= bx1 || by0 >= by1) { localAvgNit_ = 0; bgMultiplier_ = 0; return; }
+    if (bx0 >= bx1) { bx0 = 0; bx1 = bgW; }
+    if (by0 >= by1) { by0 = 0; by1 = bgH; }
+    if (bx1 > bgW) bx1 = bgW;
+    if (by1 > bgH) by1 = bgH;
 
     auto s2l = [](float c) -> float {
         return c <= 0.04045f ? c / 12.92f : powf((c + 0.055f) / 1.055f, 2.4f);
