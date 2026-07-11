@@ -1,7 +1,6 @@
 // HDR merged shader: UI adjustment (BT.2020 PQ YCbCr) + then mix with BG texture
-// Key: adjust UI brightness/chroma BEFORE mixing with background
-//      so background is never affected by Y-Scale/CbCr-Scale
-// Full-screen quad: bg fills entire window, UI drawn on top in centered area
+// Only draws background within local region (2× UI quad linear = 4× area).
+// Outside local region: black.
 // Foreground UI (texAlpha > 0.5) and Background UI (texAlpha <= 0.5) use separate
 // Eff.Alpha and Y-Scale controls.
 
@@ -83,7 +82,19 @@ vec3 ycbcr2rgb(vec3 ycbcr) {
 }
 
 void main() {
-    // 1. Sample background (sRGB -> linear BT.709, stretched to fill screen)
+    // Local region = 2× UI quad linear (4× area), centered, clamped to [0,1]
+    vec2 localMin = max(vec2(0.5) - fpc.uiScale, vec2(0.0));
+    vec2 localMax = min(vec2(0.5) + fpc.uiScale, vec2(1.0));
+    bool insideLocal = (fragUV.x >= localMin.x && fragUV.x <= localMax.x &&
+                        fragUV.y >= localMin.y && fragUV.y <= localMax.y);
+
+    if (!insideLocal) {
+        // Outside local region: black
+        outColor = vec4(0.0, 0.0, 0.0, 1.0);
+        return;
+    }
+
+    // 1. Sample background (sRGB -> linear BT.709, only in local region)
     vec3 bgRGB   = texture(texBG, fragUV).rgb;
     vec3 bgNit   = BT709_TO_BT2020 * (bgRGB * PAPER_WHITE_NIT);
     bgNit = bgNit * fpc.bgMultiplier;
@@ -94,7 +105,7 @@ void main() {
                      uiUV.y >= 0.0 && uiUV.y <= 1.0);
 
     if (!insideUI) {
-        // Outside UI area: just show scaled background
+        // Inside local but outside UI: just show scaled background
         outColor = vec4(linearToPQ(bgNit), 1.0);
         return;
     }

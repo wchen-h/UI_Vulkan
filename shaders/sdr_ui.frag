@@ -1,5 +1,6 @@
 // SDR merged shader: UI mixing (BT.709 linear) + sRGB encode
-// Full-screen quad: bg fills entire window, UI drawn on top in centered area
+// Only draws background within local region (2× UI quad linear = 4× area).
+// Outside local region: black.
 // Foreground UI (texAlpha > 0.5) and Background UI (texAlpha <= 0.5) use separate
 // alpha controls.
 
@@ -25,7 +26,19 @@ layout(location = 0) in vec2 fragUV;
 layout(location = 0) out vec4 outColor;
 
 void main() {
-    // 1. Sample background (sRGB -> linear, stretched to fill screen)
+    // Local region = 2× UI quad linear (4× area), centered, clamped to [0,1]
+    vec2 localMin = max(vec2(0.5) - fpc.uiScale, vec2(0.0));
+    vec2 localMax = min(vec2(0.5) + fpc.uiScale, vec2(1.0));
+    bool insideLocal = (fragUV.x >= localMin.x && fragUV.x <= localMax.x &&
+                        fragUV.y >= localMin.y && fragUV.y <= localMax.y);
+
+    if (!insideLocal) {
+        // Outside local region: black
+        outColor = vec4(0.0, 0.0, 0.0, 1.0);
+        return;
+    }
+
+    // 1. Sample background (sRGB -> linear, only in local region)
     vec3 bgRGB = texture(texBG, fragUV).rgb;
     vec3 bg    = bgRGB * fpc.bgMultiplier;
 
@@ -35,6 +48,7 @@ void main() {
                      uiUV.y >= 0.0 && uiUV.y <= 1.0);
 
     if (!insideUI) {
+        // Inside local but outside UI: just show scaled background
         outColor = vec4(bg, 1.0);
         return;
     }
