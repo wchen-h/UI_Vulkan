@@ -24,8 +24,10 @@ private:
     VkBuffer quadVB_ = VK_NULL_HANDLE;
     VkDeviceMemory quadVBMem_ = VK_NULL_HANDLE;
     int maxNit_  = 4000, bgNit_ = 124;
-    float effAlpha_ = 1.0f;
-    float yScale_    = 1.0f;
+    float fgAlpha_   = 1.0f;
+    float bgAlpha_   = 1.0f;
+    float fgYScale_  = 1.0f;
+    float bgYScale_  = 1.0f;
     float cbcrScale_ = 1.0f;
     float avgMixedNit_ = 0.0f;
     UITexture bgTexture_;

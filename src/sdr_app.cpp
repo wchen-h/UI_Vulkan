@@ -185,7 +185,8 @@ void SDRApp::sdrImGui() {
     if (ImGui::Button("< Prev")) { currentUI_ = (currentUI_ + uiPairs_.size() - 1) % uiPairs_.size(); }
     ImGui::SameLine();
     if (ImGui::Button("Next >")) { currentUI_ = (currentUI_ + 1) % uiPairs_.size(); }
-    ImGui::SliderFloat("Alpha", &sdrAlpha_, 0.1f, 1.0f, "%.1f");
+    ImGui::SliderFloat("FG Alpha", &sdrFgAlpha_, 0.1f, 1.0f, "%.1f");
+    ImGui::SliderFloat("BG Alpha", &sdrBgAlpha_, 0.1f, 1.0f, "%.1f");
     ImGui::PopItemWidth();
     ImGui::End();
 
@@ -214,7 +215,8 @@ void SDRApp::drawFrame() {
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(cmd, &bi);
 
-    recordUIPass(wc, cmd, imageIdx, uiPairs_, currentUI_, quadVB_, bgMultiplier_, sdrAlpha_, 1.0f, 1.0f);
+    recordUIPass(wc, cmd, imageIdx, uiPairs_, currentUI_, quadVB_, bgMultiplier_,
+                 sdrFgAlpha_, sdrBgAlpha_, 1.0f, 1.0f, 1.0f);
     recordConvertPass(cmd, imageIdx);
     recordImGuiPass(wc, cmd, imageIdx);
 

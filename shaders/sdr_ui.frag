@@ -1,5 +1,7 @@
 // SDR merged shader: UI mixing (BT.709 linear) + sRGB encode
 // Full-screen quad: bg fills entire window, UI drawn on top in centered area
+// Foreground UI (texAlpha > 0.5) and Background UI (texAlpha <= 0.5) use separate
+// alpha controls.
 
 #version 450
 
@@ -9,12 +11,14 @@ layout(binding = 2) uniform sampler2D texBG;     // background image (sRGB -> li
 
 layout(push_constant) uniform FragPush {
     // bytes 0-15: vertex (offset + scale) — full-screen: offset=(0,0), scale=(2,2)
-    layout(offset = 16) float alpha;         // sdrAlpha (UI opacity multiplier)
-    layout(offset = 20) float bgMultiplier;  // background brightness multiplier
-    layout(offset = 24) float yScale;        // unused in SDR (kept for layout compat)
-    layout(offset = 28) float cbcrScale;     // unused in SDR (kept for layout compat)
-    layout(offset = 32) vec2  uiOffset;      // UI area bottom-left in screen UV [0,1]
-    layout(offset = 40) vec2  uiScale;       // UI area size in screen UV [0,1]
+    layout(offset = 16) float fgAlpha;        // foreground alpha
+    layout(offset = 20) float bgMultiplier;    // background brightness multiplier
+    layout(offset = 24) float fgYScale;       // unused in SDR (layout compat with HDR)
+    layout(offset = 28) float cbcrScale;      // unused in SDR (layout compat with HDR)
+    layout(offset = 32) vec2  uiOffset;        // UI area bottom-left in screen UV [0,1]
+    layout(offset = 40) vec2  uiScale;         // UI area size in screen UV [0,1]
+    layout(offset = 48) float bgAlpha;        // background alpha
+    layout(offset = 52) float bgYScale;       // unused in SDR (layout compat with HDR)
 } fpc;
 
 layout(location = 0) in vec2 fragUV;
@@ -39,7 +43,10 @@ void main() {
     vec3  uiRGB    = texture(texRGB, uiUV).rgb;
     float texAlpha = texture(texAlpha, uiUV).r;
 
-    float effAlpha = texAlpha * fpc.alpha;
+    // Foreground (texAlpha > 0.5) and Background (texAlpha <= 0.5)
+    // use separate alpha sliders.
+    float sliderAlpha = (texAlpha > 0.5) ? fpc.fgAlpha : fpc.bgAlpha;
+    float effAlpha = texAlpha * sliderAlpha;
     vec3  blended  = uiRGB * effAlpha + bg * (1.0 - effAlpha);
 
     outColor = vec4(blended, 1.0);

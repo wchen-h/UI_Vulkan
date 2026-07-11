@@ -2,6 +2,8 @@
 // Key: adjust UI brightness/chroma BEFORE mixing with background
 //      so background is never affected by Y-Scale/CbCr-Scale
 // Full-screen quad: bg fills entire window, UI drawn on top in centered area
+// Foreground UI (texAlpha > 0.5) and Background UI (texAlpha <= 0.5) use separate
+// Eff.Alpha and Y-Scale controls.
 
 #version 450
 
@@ -11,12 +13,14 @@ layout(binding = 2) uniform sampler2D texBG;     // background image (sRGB -> li
 
 layout(push_constant) uniform FragPush {
     // bytes 0-15: vertex (offset + scale) — full-screen: offset=(0,0), scale=(2,2)
-    layout(offset = 16) float alpha;         // effAlpha (UI opacity multiplier)
-    layout(offset = 20) float bgMultiplier;  // background brightness multiplier
-    layout(offset = 24) float yScale;       // Y scale factor (1.0 = no change)
-    layout(offset = 28) float cbcrScale;     // CbCr scale factor (1.0 = no change)
-    layout(offset = 32) vec2  uiOffset;      // UI area bottom-left in screen UV [0,1]
-    layout(offset = 40) vec2  uiScale;       // UI area size in screen UV [0,1]
+    layout(offset = 16) float fgAlpha;        // foreground Eff.Alpha
+    layout(offset = 20) float bgMultiplier;    // background brightness multiplier
+    layout(offset = 24) float fgYScale;       // foreground Y scale factor
+    layout(offset = 28) float cbcrScale;      // CbCr scale factor (shared)
+    layout(offset = 32) vec2  uiOffset;        // UI area bottom-left in screen UV [0,1]
+    layout(offset = 40) vec2  uiScale;         // UI area size in screen UV [0,1]
+    layout(offset = 48) float bgAlpha;        // background Eff.Alpha
+    layout(offset = 52) float bgYScale;       // background Y scale factor
 } fpc;
 
 layout(location = 0) in vec2 fragUV;
@@ -108,9 +112,22 @@ void main() {
     vec3 rgb10 = pq * 1023.0;
 
     // 8-9. YCbCr + adjustment (UI only, BG not involved)
+    //      Foreground (texAlpha > 0.5) and Background (texAlpha <= 0.5)
+    //      use separate Y-Scale; CbCr-Scale is shared.
     vec3 ycbcr = rgb2ycbcr(rgb10);
+    float yScale = 1.0;
+    float effAlpha = 0.0;
     if (texAlpha > 0.0) {
-        ycbcr.x = ycbcr.x * fpc.yScale;
+        float sliderAlpha;
+        if (texAlpha > 0.5) {
+            sliderAlpha = fpc.fgAlpha;
+            yScale = fpc.fgYScale;
+        } else {
+            sliderAlpha = fpc.bgAlpha;
+            yScale = fpc.bgYScale;
+        }
+        effAlpha = clamp(texAlpha * min(sliderAlpha, 1.0) + max(0.0, sliderAlpha - 1.0), 0.0, 1.0);
+        ycbcr.x = ycbcr.x * yScale;
         ycbcr.y = 512.0 + (ycbcr.y - 512.0) * fpc.cbcrScale;
         ycbcr.z = 512.0 + (ycbcr.z - 512.0) * fpc.cbcrScale;
     }
@@ -124,13 +141,7 @@ void main() {
     vec3 uiAdjNit = pqDecode(pq_adj);
 
     // 14. Mix with BG in LINEAR domain
-    // Eff.Alpha > 1.0: additive boost (slider-1 added to texAlpha), clamped to 1.0
-    // texAlpha=0 的像素始终保持透明
-    float effAlpha = 0.0;
-    if (texAlpha > 0.0) {
-        effAlpha = clamp(texAlpha * min(fpc.alpha, 1.0) + max(0.0, fpc.alpha - 1.0), 0.0, 1.0);
-    }
-    vec3  mixed = uiAdjNit * effAlpha + bgNit * (1.0 - effAlpha);
+    vec3 mixed = uiAdjNit * effAlpha + bgNit * (1.0 - effAlpha);
 
     // 15. PQ encode -> output
     outColor = vec4(linearToPQ(mixed), 1.0);

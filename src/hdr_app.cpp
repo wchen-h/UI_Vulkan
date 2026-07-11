@@ -224,7 +224,7 @@ float HDRApp::computeAvgMixedNit() {
         float gN = 0.069097f * rN709 + 0.919540f * gN709 + 0.011362f * bN709;
         float bN = 0.016391f * rN709 + 0.088013f * gN709 + 0.895595f * bN709;
 
-        float effA = a * effAlpha_;
+        float effA = a * fgAlpha_;
         float invA = 1.0f - effA;
         rN = rN * effA + bgNitF * invA;
         gN = gN * effA + bgNitF * invA;
@@ -238,7 +238,7 @@ float HDRApp::computeAvgMixedNit() {
         float Cb = (-0.1396f * r10 - 0.3604f * g10 + 0.5000f * b10) + 512.0f;
         float Cr = (0.5000f * r10 - 0.4598f * g10 - 0.0402f * b10) + 512.0f;
 
-        Y = Y * yScale_;
+        Y = Y * fgYScale_;
         Cb = 512.0f + (Cb - 512.0f) * cbcrScale_;
         Cr = 512.0f + (Cr - 512.0f) * cbcrScale_;
 
@@ -290,8 +290,14 @@ void HDRApp::hdrImGui() {
     ImGui::Text("BG Avg Nit: %.1f  Multiplier: %.4f", bgAvgNit_, bgAvgNit_ > 0 ? (float)bgNit_ / bgAvgNit_ : 0.0f);
 
     ImGui::Separator();
-    ImGui::SliderFloat("Eff. Alpha", &effAlpha_, 0.0f, 2.0f);
-    ImGui::DragFloat("Y-Scale", &yScale_, 0.01f, 0.0f, 10.0f, "%.3f");
+    ImGui::Text("Foreground UI (alpha > 0.5)");
+    ImGui::SliderFloat("FG Eff.Alpha", &fgAlpha_, 0.0f, 2.0f);
+    ImGui::DragFloat("FG Y-Scale", &fgYScale_, 0.01f, 0.0f, 10.0f, "%.3f");
+    ImGui::Separator();
+    ImGui::Text("Background UI (alpha <= 0.5)");
+    ImGui::SliderFloat("BG Eff.Alpha", &bgAlpha_, 0.0f, 2.0f);
+    ImGui::DragFloat("BG Y-Scale", &bgYScale_, 0.01f, 0.0f, 10.0f, "%.3f");
+    ImGui::Separator();
     ImGui::DragFloat("CbCr-Scale", &cbcrScale_, 0.001f, 0.0f, 3.0f, "%.3f");
     ImGui::PopItemWidth();
     ImGui::End();
@@ -403,7 +409,8 @@ void HDRApp::drawFrame() {
 
     // HDR: compute bg multiplier from slider value and avg nit
     float bgMultiplier = bgAvgNit_ > 0.0f ? (float)bgNit_ / bgAvgNit_ : 0.0f;
-    recordUIPass(wc, cmd, imageIdx, uiPairs_, currentUI_, quadVB_, bgMultiplier, effAlpha_, yScale_, cbcrScale_);
+    recordUIPass(wc, cmd, imageIdx, uiPairs_, currentUI_, quadVB_, bgMultiplier,
+                 fgAlpha_, bgAlpha_, fgYScale_, bgYScale_, cbcrScale_);
 
     // Copy linear intermediate to readback buffer for average luminance computation
     if (readbackBuf_ != VK_NULL_HANDLE) {

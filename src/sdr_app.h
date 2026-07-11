@@ -22,7 +22,8 @@ private:
     int currentUI_ = 0;
     VkBuffer quadVB_ = VK_NULL_HANDLE;
     VkDeviceMemory quadVBMem_ = VK_NULL_HANDLE;
-    float sdrAlpha_ = 1.0f;
+    float sdrFgAlpha_ = 1.0f;
+    float sdrBgAlpha_ = 1.0f;
     UITexture bgTexture_;
     float bgAvgNit_ = 0.0f;
     float bgMultiplier_ = 0.0f;
