@@ -226,7 +226,8 @@ void loadAssets(VulkanCore& core, std::vector<UIPair>& uiPairs,
     std::cout << "[ASSET] Loaded " << uiPairs.size() << " pairs." << std::endl;
 }
 
-UITexture loadBackgroundTexture(VulkanCore& core, const std::string& path, float& avgNit, bool hdr) {
+UITexture loadBackgroundTexture(VulkanCore& core, const std::string& path, float& avgNit, bool hdr,
+                                std::vector<uint8_t>& rawRGBA) {
     UITexture bg;
     int w, h, ch;
     stbi_uc* pixels = stbi_load(path.c_str(), &w, &h, &ch, 4);
@@ -266,6 +267,8 @@ UITexture loadBackgroundTexture(VulkanCore& core, const std::string& path, float
 
     std::cout << "[BG] " << path << " " << w << "x" << h
               << " avgNit=" << avgNit << (hdr ? " (BT.2020)" : " (BT.709)") << std::endl;
+
+    rawRGBA.assign(pixels, pixels + (size_t)w * h * 4);
 
     stbi_image_free(pixels);
     return bg;

@@ -15,6 +15,7 @@ private:
     void hdrImGui();
     void recordConvertPass(VkCommandBuffer cmd, uint32_t imageIdx);
     float computeAvgMixedNit();
+    void computeLocalAvgNit();
 
     VulkanCore core_;
     WindowContext wc_;
@@ -32,6 +33,9 @@ private:
     float avgMixedNit_ = 0.0f;
     UITexture bgTexture_;
     float bgAvgNit_ = 0.0f;
+    std::vector<uint8_t> bgRawRGBA_;
+    int bgWidth_ = 0, bgHeight_ = 0;
+    float localAvgNit_ = 0.0f;
     VkBuffer readbackBuf_ = VK_NULL_HANDLE;
     VkDeviceMemory readbackMem_ = VK_NULL_HANDLE;
 };

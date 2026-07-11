@@ -55,8 +55,10 @@ void SDRApp::init() {
     if (uiPairs_.empty()) std::cerr << "[WARN] No UI assets loaded from " << assetPath_ << std::endl;
 
     // Load background texture and compute fixed multiplier for 63 nit target
-    bgTexture_ = loadBackgroundTexture(core_, std::string(BG_IMAGE_DIR) + "/Frame_13958_rotate.png", bgAvgNit_, false);
-    bgMultiplier_ = bgAvgNit_ > 0.0f ? (BG_GRAY * PAPER_WHITE_NIT) / bgAvgNit_ : 0.0f;
+    bgTexture_ = loadBackgroundTexture(core_, std::string(BG_IMAGE_DIR) + "/Frame_13958_rotate.png", bgAvgNit_, false, bgRawRGBA_);
+    bgWidth_ = bgTexture_.width;
+    bgHeight_ = bgTexture_.height;
+    computeLocalAvgNit();
 
     for (auto& p : uiPairs_) {
         VkDescriptorSetAllocateInfo ai{};
@@ -179,18 +181,70 @@ void SDRApp::sdrImGui() {
         ImGui::Text("UI: %s", uiPairs_[currentUI_].name.c_str());
         ImGui::Text("Size: %dx%d", uiPairs_[currentUI_].width, uiPairs_[currentUI_].height);
         ImGui::Text("Alpha avg: %.3f", uiPairs_[currentUI_].alphaAvg);
-        ImGui::Text("BG Avg Nit: %.1f  Target: %.0f nit  Multiplier: %.4f",
-                    bgAvgNit_, BG_GRAY * PAPER_WHITE_NIT, bgMultiplier_);
+        ImGui::Text("BG Global: %.1f nit  Local: %.1f nit  Multiplier: %.4f",
+                    bgAvgNit_, localAvgNit_, bgMultiplier_);
     }
-    if (ImGui::Button("< Prev")) { currentUI_ = (currentUI_ + uiPairs_.size() - 1) % uiPairs_.size(); }
+    if (ImGui::Button("< Prev")) { currentUI_ = (currentUI_ + uiPairs_.size() - 1) % uiPairs_.size(); computeLocalAvgNit(); }
     ImGui::SameLine();
-    if (ImGui::Button("Next >")) { currentUI_ = (currentUI_ + 1) % uiPairs_.size(); }
+    if (ImGui::Button("Next >")) { currentUI_ = (currentUI_ + 1) % uiPairs_.size(); computeLocalAvgNit(); }
     ImGui::SliderFloat("FG Alpha", &sdrFgAlpha_, 0.1f, 1.0f, "%.1f");
     ImGui::SliderFloat("BG Alpha", &sdrBgAlpha_, 0.1f, 1.0f, "%.1f");
     ImGui::PopItemWidth();
     ImGui::End();
 
     ImGui::Render();
+}
+
+void SDRApp::computeLocalAvgNit() {
+    if (uiPairs_.empty() || bgRawRGBA_.empty() || bgWidth_ == 0 || bgHeight_ == 0) return;
+    const auto& ui = uiPairs_[currentUI_];
+
+    float fracX, fracY;
+    if (wc_.pxPerMm > 0.0f) {
+        float physW = (float)ui.width  * 25.4f / UI_REFERENCE_DPI;
+        float physH = (float)ui.height * 25.4f / UI_REFERENCE_DPI;
+        float winPhysW = (float)wc_.swapchainExt.width  / wc_.pxPerMm;
+        float winPhysH = (float)wc_.swapchainExt.height / wc_.pxPerMm;
+        fracX = physW / winPhysW;
+        fracY = physH / winPhysH;
+    } else {
+        fracX = (float)ui.width  / (float)wc_.swapchainExt.width;
+        fracY = (float)ui.height / (float)wc_.swapchainExt.height;
+    }
+
+    float loX = std::max(0.0f, 0.5f - fracX);
+    float hiX = std::min(1.0f, 0.5f + fracX);
+    float loY = std::max(0.0f, 0.5f - fracY);
+    float hiY = std::min(1.0f, 0.5f + fracY);
+
+    int bx0 = (int)(loX * bgWidth_);
+    int bx1 = (int)(hiX * bgWidth_);
+    int by0 = (int)(loY * bgHeight_);
+    int by1 = (int)(hiY * bgHeight_);
+    if (bx0 >= bx1 || by0 >= by1) { localAvgNit_ = bgAvgNit_; bgMultiplier_ = bgAvgNit_ > 0 ? (BG_GRAY * PAPER_WHITE_NIT) / bgAvgNit_ : 0; return; }
+
+    auto s2l = [](float c) -> float {
+        return c <= 0.04045f ? c / 12.92f : powf((c + 0.055f) / 1.055f, 2.4f);
+    };
+
+    double totalNit = 0.0;
+    int count = 0;
+    for (int y = by0; y < by1; ++y) {
+        for (int x = bx0; x < bx1; ++x) {
+            int idx = (y * bgWidth_ + x) * 4;
+            float r = bgRawRGBA_[idx]     / 255.0f;
+            float g = bgRawRGBA_[idx + 1] / 255.0f;
+            float b = bgRawRGBA_[idx + 2] / 255.0f;
+            float rl = s2l(r), gl = s2l(g), bl = s2l(b);
+            float Y = 0.2126f * rl + 0.7152f * gl + 0.0722f * bl;
+            totalNit += Y * PAPER_WHITE_NIT;
+            count++;
+        }
+    }
+    localAvgNit_ = count > 0 ? (float)(totalNit / count) : bgAvgNit_;
+    bgMultiplier_ = localAvgNit_ > 0.0f ? (BG_GRAY * PAPER_WHITE_NIT) / localAvgNit_ : 0.0f;
+    std::cout << "[LocalAvg] UI=" << currentUI_ << " region=[" << (bx1-bx0) << "x" << (by1-by0)
+              << "] localAvg=" << localAvgNit_ << " multiplier=" << bgMultiplier_ << std::endl;
 }
 
 void SDRApp::drawFrame() {
@@ -255,7 +309,7 @@ void SDRApp::run() {
 
     while (!glfwWindowShouldClose(wc_.window)) {
         glfwPollEvents();
-        if (wc_.framebufferResized) { wc_.framebufferResized = false; recreateSwapchain(wc_, core_); }
+        if (wc_.framebufferResized) { wc_.framebufferResized = false; recreateSwapchain(wc_, core_); computeLocalAvgNit(); }
         sdrImGui();
         drawFrame();
     }

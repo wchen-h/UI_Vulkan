@@ -14,6 +14,7 @@ private:
     void drawFrame();
     void sdrImGui();
     void recordConvertPass(VkCommandBuffer cmd, uint32_t imageIdx);
+    void computeLocalAvgNit();
 
     VulkanCore core_;
     WindowContext wc_;
@@ -27,4 +28,7 @@ private:
     UITexture bgTexture_;
     float bgAvgNit_ = 0.0f;
     float bgMultiplier_ = 0.0f;
+    std::vector<uint8_t> bgRawRGBA_;
+    int bgWidth_ = 0, bgHeight_ = 0;
+    float localAvgNit_ = 0.0f;
 };
