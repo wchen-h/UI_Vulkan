@@ -55,7 +55,7 @@ void SDRApp::init() {
     if (uiPairs_.empty()) std::cerr << "[WARN] No UI assets loaded from " << assetPath_ << std::endl;
 
     // Load background texture and compute fixed multiplier for 63 nit target
-    bgTexture_ = loadBackgroundTexture(core_, std::string(BG_IMAGE_DIR) + "/Frame_9498_rotate.png", bgAvgNit_, false);
+    bgTexture_ = loadBackgroundTexture(core_, std::string(BG_IMAGE_DIR) + "/Frame_13958.png", bgAvgNit_, false);
     bgMultiplier_ = bgAvgNit_ > 0.0f ? (BG_GRAY * PAPER_WHITE_NIT) / bgAvgNit_ : 0.0f;
 
     for (auto& p : uiPairs_) {
