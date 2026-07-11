@@ -15,7 +15,9 @@ private:
     void hdrImGui();
     void recordConvertPass(VkCommandBuffer cmd, uint32_t imageIdx);
     float computeAvgMixedNit();
-    void computeLocalAvgNit();
+    void computeLocalAvgI();
+    static float pqEncInline(float nit);
+    static float pqDecInline(float pq);
 
     VulkanCore core_;
     WindowContext wc_;
@@ -27,15 +29,15 @@ private:
     int maxNit_  = 4000, bgNit_ = 124;
     float fgAlpha_   = 1.0f;
     float bgAlpha_   = 1.0f;
-    float fgYScale_  = 1.0f;
-    float bgYScale_  = 1.0f;
-    float cbcrScale_ = 1.0f;
+    float fgIScale_  = 1.0f;
+    float bgIScale_  = 1.0f;
+    float ctCpScale_ = 1.0f;
     float avgMixedNit_ = 0.0f;
     UITexture bgTexture_;
     float bgAvgNit_ = 0.0f;
     std::vector<uint8_t> bgRawRGBA_;
     int bgWidth_ = 0, bgHeight_ = 0;
-    float localAvgNit_ = 0.0f;
+    float localAvgI_ = 0.0f;
     VkBuffer readbackBuf_ = VK_NULL_HANDLE;
     VkDeviceMemory readbackMem_ = VK_NULL_HANDLE;
 };

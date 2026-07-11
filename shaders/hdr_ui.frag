@@ -1,8 +1,14 @@
-// HDR merged shader: UI adjustment (BT.2020 PQ YCbCr) + then mix with BG texture
+// HDR merged shader: UI adjustment (BT.2020 PQ ICtCp) + then mix with BG texture
 // Only draws background within local region (2× UI quad linear = 4× area).
 // Outside local region: black.
 // Foreground UI (texAlpha > 0.5) and Background UI (texAlpha <= 0.5) use separate
-// Eff.Alpha and Y-Scale controls.
+// I-Scale and Eff.Alpha controls. CtCp-Scale is shared.
+//
+// ICtCp pipeline (replaces YCbCr):
+//   BT.2020 linear nit → LMS(normalized) → ×10000 → PQ → ICtCp
+//   → I×iScale, Ct×ctScale, Cp×ctScale
+//   → inverse ICtCp → LMS → PQ decode → BT.2020 linear nit
+//   → mix with BG in linear domain → PQ encode → output
 
 #version 450
 
@@ -11,15 +17,14 @@ layout(binding = 1) uniform sampler2D texAlpha;  // linear alpha texture
 layout(binding = 2) uniform sampler2D texBG;     // background image (sRGB -> linear BT.709)
 
 layout(push_constant) uniform FragPush {
-    // bytes 0-15: vertex (offset + scale) — full-screen: offset=(0,0), scale=(2,2)
-    layout(offset = 16) float fgAlpha;        // foreground Eff.Alpha
-    layout(offset = 20) float bgMultiplier;    // background brightness multiplier
-    layout(offset = 24) float fgYScale;       // foreground Y scale factor
-    layout(offset = 28) float cbcrScale;      // CbCr scale factor (shared)
-    layout(offset = 32) vec2  uiOffset;        // UI area bottom-left in screen UV [0,1]
-    layout(offset = 40) vec2  uiScale;         // UI area size in screen UV [0,1]
-    layout(offset = 48) float bgAlpha;        // background Eff.Alpha
-    layout(offset = 52) float bgYScale;       // background Y scale factor
+    layout(offset = 16) float fgAlpha;         // foreground Eff.Alpha
+    layout(offset = 20) float bgMultiplierI;    // background I multiplier (PQ domain)
+    layout(offset = 24) float fgIScale;        // foreground I-Scale
+    layout(offset = 28) float ctCpScale;       // CtCp scale factor (shared)
+    layout(offset = 32) vec2  uiOffset;         // UI area bottom-left in screen UV [0,1]
+    layout(offset = 40) vec2  uiScale;          // UI area size in screen UV [0,1]
+    layout(offset = 48) float bgAlpha;         // background Eff.Alpha
+    layout(offset = 52) float bgIScale;        // background I-Scale
 } fpc;
 
 layout(location = 0) in vec2 fragUV;
@@ -32,6 +37,30 @@ const mat3 BT709_TO_BT2020 = mat3(
     0.627404, 0.069097, 0.016391,
     0.329283, 0.919540, 0.088013,
     0.043313, 0.011362, 0.895595);
+
+// RGB(BT.2020 linear, normalized [0,1]) -> LMS (normalized, white→L=M=S=1)
+const mat3 RGB2LMS_NORM = mat3(
+     0.35177946, -0.19536979,  0.00761242,
+     0.68332091,  1.11868999,  0.08044665,
+    -0.03510037,  0.07667981,  0.91194093);
+
+// LMS(PQ) -> ICtCp
+const mat3 LMS2ICTCP = mat3(
+     0.5,  1.613, -0.5,
+     0.5, -1.613, -0.5,
+     0.0,  0.0,    1.0);
+
+// ICtCp -> LMS(PQ)
+const mat3 ICTCP2LMS = mat3(
+     1.0,         1.0,          1.0,
+     0.3099814,  -0.3099814,    0.0,
+     0.0,         0.0,          1.0);
+
+// LMS(normalized) -> RGB(BT.2020 linear, normalized [0,1])
+const mat3 LMS2RGB_NORM = mat3(
+     2.11383483,  0.37262607, -0.05051634,
+    -1.30491881,  0.66931003, -0.04815022,
+     0.19108398, -0.04193611,  1.09866656);
 
 // ST.2084 PQ OETF: linear nit -> PQ code [0,1]
 vec3 linearToPQ(vec3 linearNits) {
@@ -62,23 +91,19 @@ vec3 pqDecode(vec3 pq) {
     return 10000.0 * pow(num / den, vec3(1.0 / m1));
 }
 
-// BT.2020 YCbCr conversion (10-bit full range, on PQ non-linear values)
-vec3 rgb2ycbcr(vec3 rgb) {
-    float Y  = 0.2627 * rgb.r + 0.6780 * rgb.g + 0.0593 * rgb.b;
-    float Cb = (-0.1396 * rgb.r - 0.3604 * rgb.g + 0.5000 * rgb.b) + 512.0;
-    float Cr = (0.5000 * rgb.r - 0.4598 * rgb.g - 0.0402 * rgb.b) + 512.0;
-    return vec3(Y, Cb, Cr);
+// BT.2020 linear RGB (nit) -> ICtCp
+vec3 rgbToICtCp(vec3 rgbNit) {
+    vec3 lms = RGB2LMS_NORM * (rgbNit / 10000.0);   // normalized LMS [0,1]
+    vec3 lmsPQ = linearToPQ(lms * 10000.0);          // PQ encode
+    return LMS2ICTCP * lmsPQ;                         // ICtCp
 }
 
-// Inverse BT.2020 YCbCr -> RGB (10-bit full range)
-vec3 ycbcr2rgb(vec3 ycbcr) {
-    float Y  = ycbcr.x;
-    float Cb = ycbcr.y - 512.0;
-    float Cr = ycbcr.z - 512.0;
-    float R  = Y + 1.4746 * Cr;
-    float B  = Y + 1.8814 * Cb;
-    float G  = (Y - 0.2627 * R - 0.0593 * B) / 0.6780;
-    return vec3(R, G, B);
+// ICtCp -> BT.2020 linear RGB (nit)
+vec3 ictcpToRGB(vec3 ic) {
+    vec3 lmsPQ = clamp(ICTCP2LMS * ic, 0.0, 1.0);   // LMS PQ, clamped
+    vec3 lms = pqDecode(lmsPQ) / 10000.0;             // normalized LMS [0,1]
+    vec3 rgbNorm = LMS2RGB_NORM * lms;                // RGB [0,1]
+    return max(rgbNorm * 10000.0, vec3(0.0));          // RGB nit
 }
 
 void main() {
@@ -89,71 +114,59 @@ void main() {
                         fragUV.y >= localMin.y && fragUV.y <= localMax.y);
 
     if (!insideLocal) {
-        // Outside local region: black
         outColor = vec4(0.0, 0.0, 0.0, 1.0);
         return;
     }
 
-    // 1. Sample background (sRGB -> linear BT.709, only in local region)
+    // 1. Sample background (sRGB -> linear BT.709 -> BT.2020 nit)
     vec3 bgRGB   = texture(texBG, fragUV).rgb;
     vec3 bgNit   = BT709_TO_BT2020 * (bgRGB * PAPER_WHITE_NIT);
-    bgNit = bgNit * fpc.bgMultiplier;
 
-    // 2. Compute UI UV from full-screen UV
+    // 2. BG: convert to ICtCp, scale I, convert back to linear
+    vec3 bgICtCp = rgbToICtCp(bgNit);
+    bgICtCp.x = clamp(bgICtCp.x * fpc.bgMultiplierI, 0.0, 1.0);
+    vec3 bgNitAdj = ictcpToRGB(bgICtCp);
+
+    // 3. Compute UI UV from full-screen UV
     vec2 uiUV = (fragUV - fpc.uiOffset) / fpc.uiScale;
     bool insideUI = (uiUV.x >= 0.0 && uiUV.x <= 1.0 &&
                      uiUV.y >= 0.0 && uiUV.y <= 1.0);
 
     if (!insideUI) {
-        // Inside local but outside UI: just show scaled background
-        outColor = vec4(linearToPQ(bgNit), 1.0);
+        outColor = vec4(linearToPQ(bgNitAdj), 1.0);
         return;
     }
 
-    // 3. Sample UI (sRGB -> linear BT.709)
+    // 4. Sample UI (sRGB -> linear BT.709 -> BT.2020 nit)
     vec3  uiRGB    = texture(texRGB, uiUV).rgb;
     float texAlpha = texture(texAlpha, uiUV).r;
 
-    // 4-5. UI -> BT.2020 nit (NO mixing with BG yet)
-    vec3 uiNit709  = uiRGB * PAPER_WHITE_NIT;
-    vec3 uiNit2020 = BT709_TO_BT2020 * uiNit709;
+    // 5. UI: convert to ICtCp, scale I/Ct/Cp, convert back to linear
+    vec3 uiNit2020 = BT709_TO_BT2020 * (uiRGB * PAPER_WHITE_NIT);
+    vec3 uiICtCp = rgbToICtCp(uiNit2020);
 
-    // 6-7. PQ encode UI only -> 10-bit
-    vec3 pq    = linearToPQ(uiNit2020);
-    vec3 rgb10 = pq * 1023.0;
-
-    // 8-9. YCbCr + adjustment (UI only, BG not involved)
-    //      Foreground (texAlpha > 0.5) and Background (texAlpha <= 0.5)
-    //      use separate Y-Scale; CbCr-Scale is shared.
-    vec3 ycbcr = rgb2ycbcr(rgb10);
-    float yScale = 1.0;
+    float iScale = 1.0;
     float effAlpha = 0.0;
     if (texAlpha > 0.0) {
         float sliderAlpha;
         if (texAlpha > 0.5) {
             sliderAlpha = fpc.fgAlpha;
-            yScale = fpc.fgYScale;
+            iScale = fpc.fgIScale;
         } else {
             sliderAlpha = fpc.bgAlpha;
-            yScale = fpc.bgYScale;
+            iScale = fpc.bgIScale;
         }
         effAlpha = clamp(texAlpha * min(sliderAlpha, 1.0) + max(0.0, sliderAlpha - 1.0), 0.0, 1.0);
-        ycbcr.x = ycbcr.x * yScale;
-        ycbcr.y = 512.0 + (ycbcr.y - 512.0) * fpc.cbcrScale;
-        ycbcr.z = 512.0 + (ycbcr.z - 512.0) * fpc.cbcrScale;
+        uiICtCp.x = clamp(uiICtCp.x * iScale, 0.0, 1.0);
+        uiICtCp.y = uiICtCp.y * fpc.ctCpScale;
+        uiICtCp.z = uiICtCp.z * fpc.ctCpScale;
     }
 
-    // 10-12. Clamp + YCbCr->RGB + /1023 -> PQ
-    ycbcr = clamp(ycbcr, vec3(0.0), vec3(1023.0));
-    vec3 rgb10_adj = ycbcr2rgb(ycbcr);
-    vec3 pq_adj = rgb10_adj / 1023.0;
+    vec3 uiAdjNit = ictcpToRGB(uiICtCp);
 
-    // 13. PQ decode -> linear nit (adjusted UI, BG not touched)
-    vec3 uiAdjNit = pqDecode(pq_adj);
+    // 6. Mix with BG in LINEAR domain
+    vec3 mixed = uiAdjNit * effAlpha + bgNitAdj * (1.0 - effAlpha);
 
-    // 14. Mix with BG in LINEAR domain
-    vec3 mixed = uiAdjNit * effAlpha + bgNit * (1.0 - effAlpha);
-
-    // 15. PQ encode -> output
+    // 7. PQ encode -> output
     outColor = vec4(linearToPQ(mixed), 1.0);
 }

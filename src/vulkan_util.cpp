@@ -1034,10 +1034,10 @@ void createQuadBuffer(VulkanCore& core, VkBuffer& buf, VkDeviceMemory& mem) {
 
 void recordUIPass(WindowContext& wc, VkCommandBuffer cmd, uint32_t imageIdx,
                    const std::vector<UIPair>& uiPairs, int currentUI,
-                   VkBuffer quadVB, float bgMultiplier,
+                   VkBuffer quadVB, float bgMultiplierI,
                    float fgAlpha, float bgAlpha,
-                   float fgYScale, float bgYScale,
-                   float cbcrScale) {
+                   float fgIScale, float bgIScale,
+                   float ctCpScale) {
     if (uiPairs.empty()) return;
     const auto& ui = uiPairs[currentUI];
     if (ui.uiDescSet == VK_NULL_HANDLE) return;
@@ -1063,20 +1063,20 @@ void recordUIPass(WindowContext& wc, VkCommandBuffer cmd, uint32_t imageIdx,
     //   [0-7]    vertex offset (vec2) = (0,0) for full-screen
     //   [8-15]   vertex scale  (vec2) = (2,2) for full-screen (verts are ±0.5)
     //   [16-19]  fgAlpha (foreground Eff.Alpha)
-    //   [20-23]  bgMultiplier
-    //   [24-27]  fgYScale (foreground Y-Scale)
-    //   [28-31]  cbcrScale (shared)
+    //   [20-23]  bgMultiplierI (background I multiplier, PQ domain)
+    //   [24-27]  fgIScale (foreground I-Scale)
+    //   [28-31]  ctCpScale (shared)
     //   [32-39]  uiOffset (vec2)
     //   [40-47]  uiScale  (vec2)
     //   [48-51]  bgAlpha (background Eff.Alpha)
-    //   [52-55]  bgYScale (background Y-Scale)
+    //   [52-55]  bgIScale (background I-Scale)
     float pcData[14] = {
         0.0f, 0.0f,           // vertex offset
         2.0f, 2.0f,           // vertex scale (full-screen)
-        fgAlpha, bgMultiplier, fgYScale, cbcrScale,
+        fgAlpha, bgMultiplierI, fgIScale, ctCpScale,
         uiOffX, uiOffY,       // UI area offset in screen UV
         fracX, fracY,         // UI area scale in screen UV
-        bgAlpha, bgYScale,    // background UI controls
+        bgAlpha, bgIScale,    // background UI controls
     };
 
     VkClearValue clearVal{};
