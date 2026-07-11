@@ -15,6 +15,8 @@ private:
     void sdrImGui();
     void recordConvertPass(VkCommandBuffer cmd, uint32_t imageIdx);
     void computeLocalAvgNit();
+    void switchBackground();
+    void updateBGDescriptorSets();
 
     VulkanCore core_;
     WindowContext wc_;
@@ -25,10 +27,11 @@ private:
     VkDeviceMemory quadVBMem_ = VK_NULL_HANDLE;
     float sdrFgAlpha_ = 1.0f;
     float sdrBgAlpha_ = 1.0f;
-    UITexture bgTexture_;
-    float bgAvgNit_ = 0.0f;
+    std::vector<UITexture> bgTextures_;
+    std::vector<std::vector<uint8_t>> bgRawList_;
+    std::vector<int> bgWList_, bgHList_;
+    std::vector<std::string> bgNames_;
+    int currentBG_ = 0;
     float bgMultiplier_ = 0.0f;
-    std::vector<uint8_t> bgRawRGBA_;
-    int bgWidth_ = 0, bgHeight_ = 0;
     float localAvgNit_ = 0.0f;
 };

@@ -8,6 +8,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
+#include <cstring>
 
 HDRApp::HDRApp(const std::string& assetPath) : assetPath_(assetPath) {}
 
@@ -29,9 +31,11 @@ HDRApp::~HDRApp() {
         if (p.alpha.mem)  vkFreeMemory(core_.device, p.alpha.mem, nullptr);
     }
 
-    if (bgTexture_.view) vkDestroyImageView(core_.device, bgTexture_.view, nullptr);
-    if (bgTexture_.img)  vkDestroyImage(core_.device, bgTexture_.img, nullptr);
-    if (bgTexture_.mem)  vkFreeMemory(core_.device, bgTexture_.mem, nullptr);
+    for (auto& bg : bgTextures_) {
+        if (bg.view) vkDestroyImageView(core_.device, bg.view, nullptr);
+        if (bg.img)  vkDestroyImage(core_.device, bg.img, nullptr);
+        if (bg.mem)  vkFreeMemory(core_.device, bg.mem, nullptr);
+    }
 
     cleanupWindow(wc_, core_);
 
@@ -59,11 +63,88 @@ void HDRApp::init() {
     loadAssets(core_, uiPairs_, assetPath_);
     if (uiPairs_.empty()) std::cerr << "[WARN] No UI assets loaded from " << assetPath_ << std::endl;
 
-    // Load background texture
-    bgTexture_ = loadBackgroundTexture(core_, std::string(BG_IMAGE_DIR) + "/Frame_13958_rotate.png", bgAvgNit_, true, bgRawRGBA_);
-    bgWidth_ = bgTexture_.width;
-    bgHeight_ = bgTexture_.height;
-    bgNit_ = (int)bgAvgNit_;
+    // Scan and load all *_rotate.png backgrounds + white
+    {
+        namespace fs = std::filesystem;
+        std::vector<std::string> bgFiles;
+        for (auto& e : fs::directory_iterator(BG_IMAGE_DIR)) {
+            std::string fn = e.path().filename().string();
+            if (fn.size() > 12 && fn.substr(fn.size()-12) == "_rotate.png")
+                bgFiles.push_back(fn);
+        }
+        std::sort(bgFiles.begin(), bgFiles.end());
+
+        for (auto& fn : bgFiles) {
+            float avgNit;
+            std::vector<uint8_t> raw;
+            UITexture tex = loadBackgroundTexture(core_, std::string(BG_IMAGE_DIR) + "/" + fn, avgNit, true, raw);
+            bgTextures_.push_back(tex);
+            bgRawList_.push_back(std::move(raw));
+            bgWList_.push_back(tex.width);
+            bgHList_.push_back(tex.height);
+            bgNames_.push_back(fn);
+            std::cout << "[BG] Loaded " << fn << " avgNit=" << avgNit << std::endl;
+        }
+
+        // White background (sRGB 255,255,255 = 350 nit/chan)
+        uint8_t whitePix[4] = {255, 255, 255, 255};
+        UITexture whiteTex;
+        // Use uploadTexture via texture.h's loadBackgroundTexture is overkill; create inline
+        {
+            extern void createImage(VkDevice, VkPhysicalDevice, uint32_t, uint32_t, VkFormat,
+                                     VkImageUsageFlags, VkImage&, VkDeviceMemory&);
+            extern VkImageView createImageView(VkDevice, VkImage, VkFormat, VkImageAspectFlags);
+            extern void transitionLayout(VkDevice, VkCommandPool, VkQueue, VkImage, VkFormat, VkImageLayout, VkImageLayout);
+            createImage(core_.device, core_.physicalDevice, 1, 1,
+                        VK_FORMAT_R8G8B8A8_SRGB,
+                        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                        whiteTex.img, whiteTex.mem);
+            // Upload via staging buffer
+            VkBuffer stag; VkDeviceMemory stagM;
+            VkBufferCreateInfo bci{}; bci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+            bci.size = 4; bci.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+            vkCreateBuffer(core_.device, &bci, nullptr, &stag);
+            VkMemoryRequirements mr; vkGetBufferMemoryRequirements(core_.device, stag, &mr);
+            VkMemoryAllocateInfo mai{}; mai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+            mai.allocationSize = mr.size;
+            mai.memoryTypeIndex = findMemoryType(core_.physicalDevice, mr.memoryTypeBits,
+                                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+            vkAllocateMemory(core_.device, &mai, nullptr, &stagM);
+            vkBindBufferMemory(core_.device, stag, stagM, 0);
+            void* m; vkMapMemory(core_.device, stagM, 0, 4, 0, &m);
+            memcpy(m, whitePix, 4); vkUnmapMemory(core_.device, stagM);
+
+            transitionLayout(core_.device, core_.sharedCmdPool, core_.graphicsQueue,
+                             whiteTex.img, VK_FORMAT_R8G8B8A8_SRGB,
+                             VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+            VkCommandBuffer cmd;
+            VkCommandBufferAllocateInfo ai{}; ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY; ai.commandPool = core_.sharedCmdPool; ai.commandBufferCount = 1;
+            vkAllocateCommandBuffers(core_.device, &ai, &cmd);
+            VkCommandBufferBeginInfo bi{}; bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+            bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            vkBeginCommandBuffer(cmd, &bi);
+            VkBufferImageCopy region{}; region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};
+            region.imageExtent = {1,1,1};
+            vkCmdCopyBufferToImage(cmd, stag, whiteTex.img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+            vkEndCommandBuffer(cmd);
+            VkSubmitInfo si{}; si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO; si.commandBufferCount = 1; si.pCommandBuffers = &cmd;
+            vkQueueSubmit(core_.graphicsQueue, 1, &si, VK_NULL_HANDLE); vkQueueWaitIdle(core_.graphicsQueue);
+            vkFreeCommandBuffers(core_.device, core_.sharedCmdPool, 1, &cmd);
+            transitionLayout(core_.device, core_.sharedCmdPool, core_.graphicsQueue,
+                             whiteTex.img, VK_FORMAT_R8G8B8A8_SRGB,
+                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            whiteTex.view = createImageView(core_.device, whiteTex.img, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT);
+            whiteTex.width = 1; whiteTex.height = 1;
+            vkDestroyBuffer(core_.device, stag, nullptr); vkFreeMemory(core_.device, stagM, nullptr);
+        }
+        bgTextures_.push_back(whiteTex);
+        bgRawList_.push_back(std::vector<uint8_t>(whitePix, whitePix + 4));
+        bgWList_.push_back(1);
+        bgHList_.push_back(1);
+        bgNames_.push_back("White");
+        currentBG_ = 0;
+    }
 
     for (auto& p : uiPairs_) {
         VkDescriptorSetAllocateInfo ai{};
@@ -85,7 +166,7 @@ void HDRApp::init() {
 
         VkDescriptorImageInfo bgInfo{};
         bgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        bgInfo.imageView = bgTexture_.view;
+        bgInfo.imageView = bgTextures_[currentBG_].view;
         bgInfo.sampler = core_.texSampler;
 
         VkWriteDescriptorSet writes[3] = {};
@@ -116,6 +197,7 @@ void HDRApp::init() {
     createRenderPasses(wc_, core_.device);
     computeLocalAvgI();
     bgNit_ = (int)(localAvgI_ > 0 ? pqDecInline(localAvgI_) : 0);
+    updateBGDescriptorSets();
 
     VkSamplerCreateInfo sci{};
     sci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -288,15 +370,19 @@ void HDRApp::hdrImGui() {
     if (ImGui::Button("< Prev")) { currentUI_ = (currentUI_ + uiPairs_.size() - 1) % uiPairs_.size(); computeLocalAvgI(); }
     ImGui::SameLine();
     if (ImGui::Button("Next >")) { currentUI_ = (currentUI_ + 1) % uiPairs_.size(); computeLocalAvgI(); }
+    ImGui::SameLine();
+    if (ImGui::Button("Next BG")) { switchBackground(); }
 
     ImGui::DragInt("Max Nit", &maxNit_, 1.0f, 100, 4000);
     ImGui::DragInt("BG Nit",  &bgNit_,  1.0f, 0, maxNit_);
+    if (!bgNames_.empty()) {
+        ImGui::Text("BG: %s (%d/%d)", bgNames_[currentBG_].c_str(), currentBG_+1, (int)bgTextures_.size());
+    }
     {
         float bgI = pqEncInline(bgNit_);
         float multiplierI = localAvgI_ > 0 ? bgI / localAvgI_ : 0.0f;
         float localNit = localAvgI_ > 0 ? pqDecInline(localAvgI_) : 0.0f;
-        ImGui::Text("BG Global Avg: %.1f nit  Local Avg I: %.6f (%.1f nit)", bgAvgNit_, localAvgI_, localNit);
-        ImGui::Text("BG I Multiplier: %.4f", multiplierI);
+        ImGui::Text("Local Avg I: %.6f (%.1f nit)  Multiplier: %.4f", localAvgI_, localNit, multiplierI);
     }
 
     ImGui::Separator();
@@ -334,8 +420,37 @@ float HDRApp::pqDecInline(float pq) {
     return 10000.0f * powf(num/den, 16384.0f/2610.0f);
 }
 
+void HDRApp::updateBGDescriptorSets() {
+    if (bgTextures_.empty()) return;
+    for (auto& p : uiPairs_) {
+        VkDescriptorImageInfo bgInfo{};
+        bgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        bgInfo.imageView = bgTextures_[currentBG_].view;
+        bgInfo.sampler = core_.texSampler;
+        VkWriteDescriptorSet write{};
+        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet = p.uiDescSet;
+        write.dstBinding = 2;
+        write.descriptorCount = 1;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.pImageInfo = &bgInfo;
+        vkUpdateDescriptorSets(core_.device, 1, &write, 0, nullptr);
+    }
+}
+
+void HDRApp::switchBackground() {
+    if (bgTextures_.empty()) return;
+    currentBG_ = (currentBG_ + 1) % bgTextures_.size();
+    updateBGDescriptorSets();
+    computeLocalAvgI();
+}
+
 void HDRApp::computeLocalAvgI() {
-    if (uiPairs_.empty() || bgRawRGBA_.empty() || bgWidth_ == 0 || bgHeight_ == 0) return;
+    if (uiPairs_.empty() || bgTextures_.empty()) return;
+    const auto& raw = bgRawList_[currentBG_];
+    int bgW = bgWList_[currentBG_];
+    int bgH = bgHList_[currentBG_];
+    if (raw.empty() || bgW == 0 || bgH == 0) return;
     const auto& ui = uiPairs_[currentUI_];
 
     float fracX, fracY;
@@ -356,10 +471,10 @@ void HDRApp::computeLocalAvgI() {
     float loY = std::max(0.0f, 0.5f - fracY);
     float hiY = std::min(1.0f, 0.5f + fracY);
 
-    int bx0 = (int)(loX * bgWidth_);
-    int bx1 = (int)(hiX * bgWidth_);
-    int by0 = (int)(loY * bgHeight_);
-    int by1 = (int)(hiY * bgHeight_);
+    int bx0 = (int)(loX * bgW);
+    int bx1 = (int)(hiX * bgW);
+    int by0 = (int)(loY * bgH);
+    int by1 = (int)(hiY * bgH);
     if (bx0 >= bx1 || by0 >= by1) { localAvgI_ = 0.0f; return; }
 
     auto s2l = [](float c) -> float {
@@ -378,10 +493,10 @@ void HDRApp::computeLocalAvgI() {
     int count = 0;
     for (int y = by0; y < by1; ++y) {
         for (int x = bx0; x < bx1; ++x) {
-            int idx = (y * bgWidth_ + x) * 4;
-            float r = bgRawRGBA_[idx]     / 255.0f;
-            float g = bgRawRGBA_[idx + 1] / 255.0f;
-            float b = bgRawRGBA_[idx + 2] / 255.0f;
+            int idx = (y * bgW + x) * 4;
+            float r = raw[idx]     / 255.0f;
+            float g = raw[idx + 1] / 255.0f;
+            float b = raw[idx + 2] / 255.0f;
             float rl = s2l(r), gl = s2l(g), bl = s2l(b);
 
             // BT.2020 nit

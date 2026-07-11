@@ -16,6 +16,8 @@ private:
     void recordConvertPass(VkCommandBuffer cmd, uint32_t imageIdx);
     float computeAvgMixedNit();
     void computeLocalAvgI();
+    void switchBackground();
+    void updateBGDescriptorSets();
     static float pqEncInline(float nit);
     static float pqDecInline(float pq);
 
@@ -33,10 +35,11 @@ private:
     float bgIScale_  = 1.0f;
     float ctCpScale_ = 1.0f;
     float avgMixedNit_ = 0.0f;
-    UITexture bgTexture_;
-    float bgAvgNit_ = 0.0f;
-    std::vector<uint8_t> bgRawRGBA_;
-    int bgWidth_ = 0, bgHeight_ = 0;
+    std::vector<UITexture> bgTextures_;
+    std::vector<std::vector<uint8_t>> bgRawList_;
+    std::vector<int> bgWList_, bgHList_;
+    std::vector<std::string> bgNames_;
+    int currentBG_ = 0;
     float localAvgI_ = 0.0f;
     VkBuffer readbackBuf_ = VK_NULL_HANDLE;
     VkDeviceMemory readbackMem_ = VK_NULL_HANDLE;
