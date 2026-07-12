@@ -384,9 +384,9 @@ void HDRApp::computeLocalAvgI() {
             float g2 = 0.069097f*rN + 0.919540f*gN + 0.011362f*bN;
             float b2 = 0.016391f*rN + 0.088013f*gN + 0.895595f*bN;
 
-            // RGB → LMS (standard BT.2100, no normalization)
-            float L = 0.359132f*r2 + 0.697603f*g2 - 0.035834f*b2;
-            float M = -0.192188f*r2 + 1.100471f*g2 + 0.075431f*b2;
+            // RGB → LMS (standard BT.2100-2, integer / 4096)
+            float L = 0.41210938f*r2 + 0.52392578f*g2 + 0.06396484f*b2;
+            float M = 0.16674805f*r2 + 0.72045898f*g2 + 0.11279297f*b2;
 
             // PQ encode LMS
             float Lp = pqEnc(L);
