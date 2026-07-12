@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
-#include <cstring>
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_vulkan.h>
 
