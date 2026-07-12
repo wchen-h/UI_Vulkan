@@ -14,7 +14,6 @@ private:
     void drawFrame();
     void hdrImGui();
     void recordConvertPass(VkCommandBuffer cmd, uint32_t imageIdx);
-    float computeAvgMixedNit();
     void computeLocalAvgNit();
     void switchBackground();
     void updateBGDescriptorSets();
