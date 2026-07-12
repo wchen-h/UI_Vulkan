@@ -348,7 +348,7 @@ void HDRApp::computeLocalAvgNit() {
             // BT.2020 luma (same as shader pipeline)
             float rN = rl * PAPER_WHITE_NIT, gN = gl * PAPER_WHITE_NIT, bN = bl * PAPER_WHITE_NIT;
             float r2 = 0.627404f*rN + 0.329283f*gN + 0.043313f*bN;
-            float g2 = 0.069097f*rN + 0.919540f*gN + 0.088013f*bN;
+            float g2 = 0.069097f*rN + 0.919540f*gN + 0.011362f*bN;
             float b2 = 0.016391f*rN + 0.088013f*gN + 0.895595f*bN;
             totalNit += 0.2627f * r2 + 0.6780f * g2 + 0.0593f * b2;
             count++;
