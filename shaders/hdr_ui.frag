@@ -38,11 +38,11 @@ const mat3 BT709_TO_BT2020 = mat3(
     0.329283, 0.919540, 0.088013,
     0.043313, 0.011362, 0.895595);
 
-// RGB(BT.2020 linear, normalized [0,1]) -> LMS (normalized, white→L=M=S=1)
-const mat3 RGB2LMS_NORM = mat3(
-     0.35177946, -0.19536979,  0.00761242,
-     0.68332091,  1.11868999,  0.08044665,
-    -0.03510037,  0.07667981,  0.91194093);
+// RGB(BT.2020 linear, [0,1]) -> LMS (per BT.2100-2, no normalization)
+const mat3 RGB2LMS = mat3(
+     0.35913200, -0.19218800,  0.00704100,
+     0.69760300,  1.10047100,  0.07440800,
+    -0.03583400,  0.07543100,  0.84348700);
 
 // LMS(PQ) -> ICtCp
 const mat3 LMS2ICTCP = mat3(
@@ -56,11 +56,11 @@ const mat3 ICTCP2LMS = mat3(
      0.3099814,  -0.3099814,    0.0,
      0.0,         0.0,          1.0);
 
-// LMS(normalized) -> RGB(BT.2020 linear, normalized [0,1])
-const mat3 LMS2RGB_NORM = mat3(
-     2.11383483,  0.37262607, -0.05051634,
-    -1.30491881,  0.66931003, -0.04815022,
-     0.19108398, -0.04193611,  1.09866656);
+// LMS(normalized) -> RGB(BT.2020 linear, [0,1])
+const mat3 LMS2RGB = mat3(
+     2.07055810,  0.36499726, -0.04948211,
+    -1.32652256,  0.68039088, -0.04894738,
+     0.20659157, -0.04533947,  1.18782982);
 
 // ST.2084 PQ OETF: linear nit -> PQ code [0,1]
 vec3 linearToPQ(vec3 linearNits) {
@@ -93,7 +93,7 @@ vec3 pqDecode(vec3 pq) {
 
 // BT.2020 linear RGB (nit) -> ICtCp
 vec3 rgbToICtCp(vec3 rgbNit) {
-    vec3 lms = RGB2LMS_NORM * (rgbNit / 10000.0);   // normalized LMS [0,1]
+    vec3 lms = RGB2LMS * (rgbNit / 10000.0);   // normalized LMS [0,1]
     vec3 lmsPQ = linearToPQ(lms * 10000.0);          // PQ encode
     return LMS2ICTCP * lmsPQ;                         // ICtCp
 }
@@ -102,7 +102,7 @@ vec3 rgbToICtCp(vec3 rgbNit) {
 vec3 ictcpToRGB(vec3 ic) {
     vec3 lmsPQ = clamp(ICTCP2LMS * ic, 0.0, 1.0);   // LMS PQ, clamped
     vec3 lms = pqDecode(lmsPQ) / 10000.0;             // normalized LMS [0,1]
-    vec3 rgbNorm = LMS2RGB_NORM * lms;                // RGB [0,1]
+    vec3 rgbNorm = LMS2RGB * lms;                // RGB [0,1]
     return max(rgbNorm * 10000.0, vec3(0.0));          // RGB nit
 }
 

@@ -378,15 +378,15 @@ void HDRApp::computeLocalAvgI() {
             float b = raw[idx + 2] / 255.0f;
             float rl = s2l(r), gl = s2l(g), bl = s2l(b);
 
-            // BT.2020 nit
+            // BT.2020 nit (per ITU-R BT.2087)
             float rN = rl * PAPER_WHITE_NIT, gN = gl * PAPER_WHITE_NIT, bN = bl * PAPER_WHITE_NIT;
             float r2 = 0.627404f*rN + 0.329283f*gN + 0.043313f*bN;
-            float g2 = 0.069097f*rN + 0.919540f*gN + 0.088013f*bN;
+            float g2 = 0.069097f*rN + 0.919540f*gN + 0.011362f*bN;
             float b2 = 0.016391f*rN + 0.088013f*gN + 0.895595f*bN;
 
-            // RGB → LMS (normalized)
-            float L = 0.35177946f*r2 + 0.68332091f*g2 - 0.03510037f*b2;
-            float M = -0.19536979f*r2 + 1.11868999f*g2 + 0.07667981f*b2;
+            // RGB → LMS (standard BT.2100, no normalization)
+            float L = 0.359132f*r2 + 0.697603f*g2 - 0.035834f*b2;
+            float M = -0.192188f*r2 + 1.100471f*g2 + 0.075431f*b2;
 
             // PQ encode LMS
             float Lp = pqEnc(L);
