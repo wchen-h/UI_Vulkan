@@ -180,6 +180,7 @@ void HDRApp::init() {
                           SHADER_DIR "pq_convert.frag.spv", 4);
     createCmdBuffersAndSync(wc_, core_);
     initImGuiForWindow(wc_, core_);
+    adjustImGuiStyleForPQ(PAPER_WHITE_NIT);
 
     // Readback buffer for average luminance computation (host-visible)
     {

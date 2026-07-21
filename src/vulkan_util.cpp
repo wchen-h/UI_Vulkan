@@ -1002,6 +1002,36 @@ void initImGuiForWindow(WindowContext& wc, VulkanCore& core) {
     wc.hasImGui = true;
 }
 
+void adjustImGuiStyleForPQ(float targetWhiteNit) {
+    ImGuiStyle& style = ImGui::GetStyle();
+
+    auto srgb2lin = [](float c) -> float {
+        return c <= 0.04045f ? c / 12.92f : powf((c + 0.055f) / 1.055f, 2.4f);
+    };
+
+    auto pqEncode = [](float lin) -> float {
+        if (lin <= 0.0f) return 0.0f;
+        const float m1 = 0.1593017578125f;
+        const float m2 = 78.84375f;
+        const float c1 = 0.8359375f;
+        const float c2 = 18.8515625f;
+        const float c3 = 18.6875f;
+        float n = powf(lin, m1);
+        float L = (c1 + c2 * n) / (1.0f + c3 * n);
+        return powf(L, m2);
+    };
+
+    for (int i = 0; i < ImGuiCol_COUNT; ++i) {
+        ImVec4& c = style.Colors[i];
+        float r_lin = srgb2lin(c.x) * targetWhiteNit / 10000.0f;
+        float g_lin = srgb2lin(c.y) * targetWhiteNit / 10000.0f;
+        float b_lin = srgb2lin(c.z) * targetWhiteNit / 10000.0f;
+        c.x = pqEncode(r_lin);
+        c.y = pqEncode(g_lin);
+        c.z = pqEncode(b_lin);
+    }
+}
+
 void createQuadBuffer(VulkanCore& core, VkBuffer& buf, VkDeviceMemory& mem) {
     struct { float x,y,u,v; } verts[6] = {
         {-0.5f,-0.5f, 0.f,0.f}, { 0.5f,-0.5f, 1.f,0.f}, { 0.5f, 0.5f, 1.f,1.f},

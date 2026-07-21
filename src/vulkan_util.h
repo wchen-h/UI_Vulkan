@@ -41,6 +41,7 @@ void createConvertPipeline(WindowContext& wc, VulkanCore& core,
                            const char* vertPath, const char* fragPath, uint32_t pcSize);
 void createCmdBuffersAndSync(WindowContext& wc, VulkanCore& core);
 void initImGuiForWindow(WindowContext& wc, VulkanCore& core);
+void adjustImGuiStyleForPQ(float targetWhiteNit);
 void createQuadBuffer(VulkanCore& core, VkBuffer& buf, VkDeviceMemory& mem);
 
 void recordUIPass(WindowContext& wc, VkCommandBuffer cmd, uint32_t imageIdx,
