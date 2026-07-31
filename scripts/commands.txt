@@ -1,0 +1,6 @@
+# insert HDR Vivid Metadata into a MP4 file converted from a YUV sequence
+# the metadata is stored in test.txt in the format of hexidecimal
+./ffmpeg_venc -s 3840x2160 -pix_fmt yuv420ple -r 50 -i test.yuv -fps_mode passthrough -b:v 10M -c:v libx265 -vmeta_url test.txt -preset medium -x265-params "keyint=50:bframes=0:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:master-display=G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(12100000,60):max-cll=0.0" -an -y -tag:v hvc1 test.mp4
+
+# convert raw image data to YUV files
+ffmpeg_venc.exe -y -f rawvideo -vcodec rawvideo -pix_fmt x2bgr10le -s {WIDTH}x{HEIGHT} -i {bin filename} -pix_fmt yuv420p10le {yuv_filename}

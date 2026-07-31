@@ -1,0 +1,24 @@
+{
+  "common": {
+    "ui_alpha_png": "pic/ui/alpha.png",
+    "ui_rgb_png": "pic/ui/rgb.png",
+    "width": 2328,
+    "height": 1080,
+    "f": 1.0,
+    "fy": 1.0
+  },
+  "task1": {
+    "hdr_dir": "<原始 HDR bin 目录: 逐帧背景, 不含 UI; CLI --hdr-dir>",
+    "outdir": "<任务1 输出目录: _uiAlpha.bin + _uiRGB.bin; CLI --outdir>"
+  },
+  "task2": {
+    "hdr_dir": "<原始 HDR bin 目录: 同 task1.hdr_dir; CLI --hdr-dir>",
+    "ui_bin_dir": "<任务1 输出目录: 读 _uiAlpha.bin + _uiRGB.bin; CLI --ui-bin-dir>",
+    "outdir": "<任务2 输出目录: _withUI.bin; CLI --outdir>"
+  },
+  "task3": {
+    "blended_dir": "<任务2 输出目录: 读 _withUI.bin; CLI --blended-dir>",
+    "video_out": "<输出 MP4 路径; CLI --video-out>",
+    "encoder_script": "<ffmpeg_venc 可执行文件路径 (带 -vmeta_url)>"
+  }
+}
