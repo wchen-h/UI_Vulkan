@@ -13,11 +13,11 @@
   },
   "task2": {
     "hdr_dir": "<原始 HDR bin 目录: 同 task1.hdr_dir; CLI --hdr-dir>",
-    "ui_bin_dir": "<任务1 输出目录: 读 _uiAlpha.bin + _uiRGB.bin; CLI --ui-bin-dir>",
+    "ui_alpha_bin": "<任务1 输出的 _uiAlpha.bin 绝对路径; CLI --ui-alpha-bin>",
+    "ui_rgb_bin": "<任务1 输出的 _uiRGB.bin 绝对路径; CLI --ui-rgb-bin>",
     "outdir": "<任务2 输出目录: _withUI.bin; CLI --outdir>"
   },
   "task3": {
-    "blended_dir": "<任务2 输出目录: 读 _withUI.bin; CLI --blended-dir>",
     "video_out": "<输出 MP4 路径; CLI --video-out>",
     "encoder_script": "<ffmpeg_venc 可执行文件路径 (带 -vmeta_url)>"
   }

@@ -57,18 +57,18 @@ def concat_bins(bins, out_path, frame_bytes):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--config', default=CONFIG_PATH, help='config.json 路径')
-    ap.add_argument('--blended-dir', default=None, help='覆盖 config.task3.blended_dir (_withUI.bin 目录)')
+    ap.add_argument('--blended-dir', default=None, help='覆盖混合 bin 目录 (默认 config.task2.outdir)')
     ap.add_argument('--video-out', default=None, help='覆盖 config.task3.video_out')
     ap.add_argument('--keep-temp', action='store_true', help='保留中间 raw/yuv 文件')
     args = ap.parse_args()
 
     cfg = load_config(args.config)
     common.set_dims(cfg['common']['height'], cfg['common']['width'])
-    blended_dir = args.blended_dir or resolve_path(cfg['task3']['blended_dir'])
+    blended_dir = args.blended_dir or resolve_path(cfg['task2']['outdir'])
     video_out = args.video_out or resolve_path(cfg['task3']['video_out'])
     ffmpeg = resolve_path(cfg['task3']['encoder_script'])
     if not blended_dir:
-        raise SystemExit("config.task3.blended_dir 未设置")
+        raise SystemExit("config.task2.outdir 未设置")
     if not video_out:
         raise SystemExit("config.task3.video_out 未设置")
     if not ffmpeg or not os.path.isfile(ffmpeg):

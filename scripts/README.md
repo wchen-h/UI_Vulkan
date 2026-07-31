@@ -107,10 +107,10 @@ out = linearToPQ(clip(mixed, 0, 10000)) → A2B10G10R10 (A=1)
 UI 外 `eff=0` → `mixed = bgNit` (原背景不变)。输出 `<hdr名>_withUI.bin` (A2B10G10R10 PQ BT.2020)。
 
 ```bash
-python3 blend_ui.py --config config.json [--hdr-dir X] [--ui-bin-dir Y] [--outdir Z]
+python3 blend_ui.py --config config.json [--hdr-dir X] [--ui-alpha-bin A] [--ui-rgb-bin R] [--outdir Z]
 ```
 
-> `task2.ui_bin_dir` 应指向任务1 的 `outdir`; `task2.hdr_dir` 与任务1 相同 (原始背景 bin)。
+> `task2.ui_alpha_bin` / `task2.ui_rgb_bin` 直接指向任务1 输出的 `_uiAlpha.bin` / `_uiRGB.bin` (绝对路径, 不再按名推导); `task2.hdr_dir` 与任务1 相同 (原始背景 bin)。
 
 ### 任务3: `make_video.py` — HDR10 视频编码
 
@@ -124,7 +124,7 @@ python3 blend_ui.py --config config.json [--hdr-dir X] [--ui-bin-dir Y] [--outdi
 python3 make_video.py --config config.json [--blended-dir X] [--video-out Y] [--keep-temp]
 ```
 
-> `task3.blended_dir` 应指向任务2 的 `outdir`; `task3.encoder_script` 指向 `ffmpeg_venc` 可执行文件。
+> 混合 bin 目录直接读 `task2.outdir` (无需在 task3 重复设置); `task3.encoder_script` 指向 `ffmpeg_venc` 可执行文件。`--blended-dir` 可临时覆盖。
 
 ---
 
@@ -142,19 +142,20 @@ python3 make_video.py --config config.json [--blended-dir X] [--video-out Y] [--
 
 ### `blend_ui.py`
 
-| 参数           | 默认        | 说明                                  |
-|----------------|-------------|---------------------------------------|
-| `--config`     | config.json | config.json 路径                      |
-| `--hdr-dir`    | (config)    | 覆盖 `task2.hdr_dir`, 原始 HDR bin 目录 |
-| `--ui-bin-dir` | (config)    | 覆盖 `task2.ui_bin_dir`, 任务1 输出目录 |
-| `--outdir`     | (config)    | 覆盖 `task2.outdir`, 混合 bin 输出目录  |
+| 参数              | 默认        | 说明                                          |
+|-------------------|-------------|-----------------------------------------------|
+| `--config`        | config.json | config.json 路径                              |
+| `--hdr-dir`       | (config)    | 覆盖 `task2.hdr_dir`, 原始 HDR bin 目录         |
+| `--ui-alpha-bin`  | (config)    | 覆盖 `task2.ui_alpha_bin`, 任务1 输出 `_uiAlpha.bin` |
+| `--ui-rgb-bin`    | (config)    | 覆盖 `task2.ui_rgb_bin`, 任务1 输出 `_uiRGB.bin` |
+| `--outdir`        | (config)    | 覆盖 `task2.outdir`, 混合 bin 输出目录          |
 
 ### `make_video.py`
 
 | 参数              | 默认        | 说明                                      |
 |-------------------|-------------|-------------------------------------------|
 | `--config`        | config.json | config.json 路径                          |
-| `--blended-dir`   | (config)    | 覆盖 `task3.blended_dir`, `_withUI.bin` 目录 |
+| `--blended-dir`   | (task2.outdir) | 覆盖混合 bin 目录 (默认 `task2.outdir`)     |
 | `--video-out`     | (config)    | 覆盖 `task3.video_out`, 输出 MP4 路径     |
 | `--keep-temp`     | (flag)      | 保留中间 raw/yuv 临时文件 (默认删除)       |
 

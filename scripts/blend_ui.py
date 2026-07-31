@@ -12,7 +12,7 @@ blend 流程与测试代码 hdr_ui.frag:154-158 一致:
 UI 外像素 eff=0 -> mixed = bgNit (原 HDR 背景)。
 路径参数从 config.json (task2 节) 读取。
 用法:
-    python3 blend_ui.py [--config config.json] [--hdr-dir X] [--ui-bin-dir Y] [--outdir Z]
+    python3 blend_ui.py [--config config.json] [--hdr-dir X] [--ui-alpha-bin A] [--ui-rgb-bin R] [--outdir Z]
 """
 import argparse
 import os
@@ -41,35 +41,35 @@ def blend_one(hdr_path, uirgb_path, uialpha_path, out_path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--config', default=CONFIG_PATH, help='config.json 路径')
-    ap.add_argument('--hdr-dir', default=None, help='覆盖 config.task2.hdr_dir (原始 HDR bin)')
-    ap.add_argument('--ui-bin-dir', default=None, help='覆盖 config.task2.ui_bin_dir (任务1输出)')
+    ap.add_argument('--hdr-dir', default=None, help='覆盖 config.task2.hdr_dir (原始 HDR bin 目录)')
+    ap.add_argument('--ui-alpha-bin', default=None, help='覆盖 config.task2.ui_alpha_bin (任务1 输出 _uiAlpha.bin)')
+    ap.add_argument('--ui-rgb-bin', default=None, help='覆盖 config.task2.ui_rgb_bin (任务1 输出 _uiRGB.bin)')
     ap.add_argument('--outdir', default=None, help='覆盖 config.task2.outdir')
     args = ap.parse_args()
 
     cfg = load_config(args.config)
     common.set_dims(cfg['common']['height'], cfg['common']['width'])
     hdr_dir = args.hdr_dir or resolve_path(cfg['task2']['hdr_dir'])
-    ui_bin_dir = args.ui_bin_dir or resolve_path(cfg['task2']['ui_bin_dir'])
+    uialpha = args.ui_alpha_bin or resolve_path(cfg['task2']['ui_alpha_bin'])
+    uirgb = args.ui_rgb_bin or resolve_path(cfg['task2']['ui_rgb_bin'])
     outdir = args.outdir or resolve_path(cfg['task2']['outdir'])
-    for d, name in [(hdr_dir, 'task2.hdr_dir'), (ui_bin_dir, 'task2.ui_bin_dir'),
-                    (outdir, 'task2.outdir')]:
-        if not d:
+    for p, name in [(hdr_dir, 'task2.hdr_dir'), (uialpha, 'task2.ui_alpha_bin'),
+                    (uirgb, 'task2.ui_rgb_bin'), (outdir, 'task2.outdir')]:
+        if not p:
             raise SystemExit(f"config.{name} 未设置")
+    for p, name in [(uialpha, 'task2.ui_alpha_bin'), (uirgb, 'task2.ui_rgb_bin')]:
+        if not os.path.isfile(p):
+            raise SystemExit(f"UI bin 未找到: {p} (config.{name})")
     os.makedirs(outdir, exist_ok=True)
 
     # 原始 HDR bin: 排除任务1/任务2产生的后缀文件
     hdr_files = sorted([os.path.join(hdr_dir, fn) for fn in os.listdir(hdr_dir)
                         if fn.endswith('.bin')
                         and not fn.endswith(('_uiAlpha.bin', '_uiRGB.bin', '_withUI.bin'))])
-    print(f"HDR bins: {len(hdr_files)}")
+    print(f"HDR bins: {len(hdr_files)}, UI alpha={uialpha}, UI rgb={uirgb}")
     n_ok = 0
     for h in hdr_files:
         name = os.path.splitext(os.path.basename(h))[0]
-        uialpha = os.path.join(ui_bin_dir, name + '_uiAlpha.bin')
-        uirgb = os.path.join(ui_bin_dir, name + '_uiRGB.bin')
-        if not (os.path.exists(uialpha) and os.path.exists(uirgb)):
-            print(f"  [skip] {name}: 未找到对应 UI bin (期望 {name}_uiAlpha.bin / _uiRGB.bin 于 {ui_bin_dir})")
-            continue
         out = os.path.join(outdir, name + '_withUI.bin')
         blend_one(h, uirgb, uialpha, out)
         print(f"  {name} -> {out}")
