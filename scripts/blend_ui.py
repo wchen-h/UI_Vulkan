@@ -18,6 +18,7 @@ import argparse
 import os
 import numpy as np
 
+import common
 from common import (load_config, resolve_path, CONFIG_PATH,
                     read_hdr_bin, read_uialpha_bin, linear_to_pq,
                     pack_a2b10g10r10, PQ_MAX_NIT)
@@ -46,6 +47,7 @@ def main():
     args = ap.parse_args()
 
     cfg = load_config(args.config)
+    common.set_dims(cfg['common']['height'], cfg['common']['width'])
     hdr_dir = args.hdr_dir or resolve_path(cfg['task2']['hdr_dir'])
     ui_bin_dir = args.ui_bin_dir or resolve_path(cfg['task2']['ui_bin_dir'])
     outdir = args.outdir or resolve_path(cfg['task2']['outdir'])

@@ -44,6 +44,13 @@ def resolve_path(p):
     return p if os.path.isabs(p) else os.path.join(PROJECT_ROOT, p)
 
 
+def set_dims(h, w):
+    """设置图像分辨率 (各脚本 main 从 config 读取后调用);
+    read_hdr_bin / read_uialpha_bin 等按此 reshape"""
+    global H_IMG, W_IMG
+    H_IMG, W_IMG = int(h), int(w)
+
+
 # ===== 色彩转换 =====
 
 def srgb_to_linear(v):

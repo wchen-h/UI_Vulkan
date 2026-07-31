@@ -6,7 +6,7 @@
     2. cat 所有 <名>_withUI.bin 拼成一个 raw 序列 -> 命令2转 yuv420p10le
     3. 命令1: yuv -> libx265 HDR10 MP4 (BT.2020 + PQ + master-display, -vmeta_url metadata.txt)
 
-分辨率用 UI 图片尺寸 (1080x2328, 即 -s 2328x1080)。
+分辨率从 config.json 的 common.width/height 读取 (默认 2328×1080, 即 -s 2328x1080)。
 路径参数从 config.json (task3 节) 读取。
 用法:
     python3 make_video.py [--config config.json] [--blended-dir X] [--video-out Y] [--keep-temp]
@@ -17,14 +17,15 @@ import shutil
 import subprocess
 import tempfile
 
-from common import load_config, resolve_path, CONFIG_PATH, H_IMG, W_IMG
+import common
+from common import load_config, resolve_path, CONFIG_PATH
 
 # HDR Vivid 动态元数据 (固定十进制参数, 来自用户提供)
 METADATA_PAYLOAD = ("1 1 1343 0 3948 1 1 2770 1 5717 24 897 0 10 1 1 1 6 6 1 1 0 "
                     "252 614 245 573 127 1 2186 333 419 103 2080 1 8335 24 630 0 10 1 1 "
                     "1 6 6 1 1 0 252 0 613 306 127 1 1921 562 437 114 0")
 
-# libx265 HDR10 参数 (commands.txt 命令1, 分辨率已改 1080x2328)
+# libx265 HDR10 参数 (commands.txt 命令1, 分辨率由 config 决定)
 X265_PARAMS = ("keyint=50:bframes=0:colorprim=bt2020:transfer=smpte2084:"
                "colormatrix=bt2020nc:master-display=G(13250,34500)B(7500,3000)"
                "R(34000,16000)WP(15635,16450)L(12100000,60):max-cll=0.0")
@@ -48,7 +49,7 @@ def concat_bins(bins, out_path, frame_bytes):
             sz = os.path.getsize(b)
             if sz != frame_bytes:
                 raise SystemExit(f"帧字节数不符: {b} = {sz}, 期望 {frame_bytes} "
-                                 f"(= {W_IMG}x{H_IMG}x4)")
+                                 f"(= {common.H_IMG}x{common.W_IMG}x4)")
             with open(b, 'rb') as inp:
                 shutil.copyfileobj(inp, out, length=1024 * 1024)
 
@@ -62,6 +63,7 @@ def main():
     args = ap.parse_args()
 
     cfg = load_config(args.config)
+    common.set_dims(cfg['common']['height'], cfg['common']['width'])
     blended_dir = args.blended_dir or resolve_path(cfg['task3']['blended_dir'])
     video_out = args.video_out or resolve_path(cfg['task3']['video_out'])
     ffmpeg = resolve_path(cfg['task3']['encoder_script'])
@@ -72,7 +74,7 @@ def main():
     if not ffmpeg or not os.path.isfile(ffmpeg):
         raise SystemExit(f"ffmpeg_venc 未找到: '{ffmpeg}' (请在 config.task3.encoder_script 设置路径)")
 
-    W, H = W_IMG, H_IMG          # 2328 x 1080
+    W, H = common.W_IMG, common.H_IMG   # 从 config 读取
     fps, bitrate = 50, "10M"
     frame_bytes = W * H * 4
 

@@ -44,12 +44,14 @@ pip install numpy pillow scipy
 
 ## 输入格式
 
+> 分辨率从 `config.json` 的 `common.width` / `common.height` 读取 (默认 2328×1080)。UI png 与 HDR bin 的分辨率必须一致, 两者匹配即可, 不限固定尺寸。
+
 ### UI 素材 (固定, 所有帧共用)
 
 | 文件        | 格式                                   | 说明                          |
 |-------------|----------------------------------------|-------------------------------|
-| `alpha.png` | 8-bit 灰度 (L), 1080×2328             | UI 不透明度, 0=透明 255=不透明 |
-| `rgb.png`   | 8-bit sRGB BT.709 (RGB), 1080×2328     | UI 颜色 (预乘前), 黑色像素=无 UI |
+| `alpha.png` | 8-bit 灰度 (L), H×W                   | UI 不透明度, 0=透明 255=不透明 |
+| `rgb.png`   | 8-bit sRGB BT.709 (RGB), H×W           | UI 颜色 (预乘前), 黑色像素=无 UI |
 
 两者由 `extract_ui_full.py` 从 `black.png` + `white.png` 提取:
 - `alpha = 1 − (white − black).r / 255`
@@ -58,9 +60,9 @@ pip install numpy pillow scipy
 ### HDR bin (逐帧, 原始背景, 不含 UI)
 
 - 格式: A2B10G10R10 UNORM (Vulkan `VK_FORMAT_A2B10G10R10_UNORM_PACK32`)
-- 色域: PQ ST.2084 + BT.2020, 1080×2328, 单帧无文件头
+- 色域: PQ ST.2084 + BT.2020, H×W (= config.width×height), 单帧无文件头
 - 存储: 小端 uint32, 每像素 4 字节, 位布局 `R[0:9] | G[10:19] | B[20:29] | A[30:31]`, 10-bit 值 ÷1023 归一化
-- 帧大小: 1080 × 2328 × 4 = 10,056,960 字节
+- 帧大小: height × width × 4 字节 (默认 1080×2328×4 = 10,056,960)
 
 ---
 

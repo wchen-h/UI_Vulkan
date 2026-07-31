@@ -15,7 +15,8 @@ import numpy as np
 from PIL import Image
 from scipy.ndimage import label as cc_label, find_objects
 
-from common import (PAPER_WHITE_NIT, H_IMG, W_IMG, BT709_TO_BT2020,
+import common
+from common import (PAPER_WHITE_NIT, BT709_TO_BT2020,
                     srgb_to_linear, srgb_to_chroma, linear_to_pq,
                     rgb_to_ycbcr2020, ycbcr_to_rgb2020,
                     read_hdr_bin, pack_a2b10g10r10,
@@ -110,8 +111,8 @@ def compute_bg_brightness(x0, y0, x1, y1, hdr_nits):
     right = int(round(cx + hw))
     top = int(round(cy - hh))
     bottom = int(round(cy + hh))
-    left, right = max(left, 0), min(right, W_IMG)
-    top, bottom = max(top, 0), min(bottom, H_IMG)
+    left, right = max(left, 0), min(right, common.W_IMG)
+    top, bottom = max(top, 0), min(bottom, common.H_IMG)
     region = hdr_nits[top:bottom, left:right, :]
     Y = 0.2627 * region[..., 0] + 0.6780 * region[..., 1] + 0.0593 * region[..., 2]
     B = float(np.mean(Y))
@@ -217,6 +218,7 @@ def main():
 
     # ---- 读 config: UI png 固定不变, HDR bin 逐帧变化 ----
     cfg = load_config(args.config)
+    common.set_dims(cfg['common']['height'], cfg['common']['width'])
     ui_alpha = resolve_path(cfg['common']['ui_alpha_png'])   # UI alpha png (固定)
     ui_rgb = resolve_path(cfg['common']['ui_rgb_png'])       # UI rgb png (固定)
     f = float(cfg['common'].get('f', 1.0))                   # 沉浸度滑块 (Eff.Alpha 强度, §5.1)
