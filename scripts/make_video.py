@@ -18,7 +18,7 @@ import subprocess
 import tempfile
 
 import common
-from common import load_config, resolve_path, CONFIG_PATH
+from common import load_config, resolve_path, path_filled, CONFIG_PATH
 
 # HDR Vivid 动态元数据 (固定十进制参数, 来自用户提供)
 METADATA_PAYLOAD = ("1 1 1343 0 3948 1 1 2770 1 5717 24 897 0 10 1 1 1 6 6 1 1 0 "
@@ -64,15 +64,28 @@ def main():
 
     cfg = load_config(args.config)
     common.set_dims(cfg['common']['height'], cfg['common']['width'])
-    blended_dir = args.blended_dir or resolve_path(cfg['task2']['outdir'])
-    video_out = args.video_out or resolve_path(cfg['task3']['video_out'])
-    ffmpeg = resolve_path(cfg['task3']['encoder_script'])
-    if not blended_dir:
-        raise SystemExit("config.task2.outdir 未设置")
-    if not video_out:
+
+    # 混合 bin 目录: 默认 task2.outdir (可被 --blended-dir 覆盖)
+    if args.blended_dir:
+        blended_dir = resolve_path(args.blended_dir)
+    elif path_filled(cfg['task2']['outdir']):
+        blended_dir = resolve_path(cfg['task2']['outdir'])
+    else:
+        raise SystemExit("config.task2.outdir 未设置 (make_video 默认从此读 _withUI.bin; 或用 --blended-dir 覆盖)")
+    if not os.path.isdir(blended_dir):
+        raise SystemExit(f"混合 bin 目录不存在: {blended_dir}")
+
+    # 必填: 输出 MP4
+    if not path_filled(cfg['task3']['video_out']) and not args.video_out:
         raise SystemExit("config.task3.video_out 未设置")
-    if not ffmpeg or not os.path.isfile(ffmpeg):
-        raise SystemExit(f"ffmpeg_venc 未找到: '{ffmpeg}' (请在 config.task3.encoder_script 设置路径)")
+    video_out = args.video_out or resolve_path(cfg['task3']['video_out'])
+
+    # 必填: ffmpeg_venc
+    if not path_filled(cfg['task3']['encoder_script']):
+        raise SystemExit("config.task3.encoder_script 未设置")
+    ffmpeg = resolve_path(cfg['task3']['encoder_script'])
+    if not os.path.isfile(ffmpeg):
+        raise SystemExit(f"ffmpeg_venc 未找到: {ffmpeg} (config.task3.encoder_script)")
 
     W, H = common.W_IMG, common.H_IMG   # 从 config 读取
     fps, bitrate = 50, "10M"

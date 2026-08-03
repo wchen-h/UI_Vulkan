@@ -51,6 +51,11 @@ def set_dims(h, w):
     H_IMG, W_IMG = int(h), int(w)
 
 
+def path_filled(p):
+    """路径是否已填写 (非空且非 <...> 占位符); 用于 config 必填校验"""
+    return bool(p) and not str(p).startswith('<')
+
+
 # ===== 色彩转换 =====
 
 def srgb_to_linear(v):

@@ -20,7 +20,7 @@ from common import (PAPER_WHITE_NIT, BT709_TO_BT2020,
                     srgb_to_linear, srgb_to_chroma, linear_to_pq,
                     rgb_to_ycbcr2020, ycbcr_to_rgb2020,
                     read_hdr_bin, pack_a2b10g10r10,
-                    load_config, resolve_path, CONFIG_PATH)
+                    load_config, resolve_path, path_filled, CONFIG_PATH)
 
 
 # ===== 补偿公式 (hdr_compensation_plan_v2.md 4.2/4.3 基础 + 5.1/5.2 f/fy 插值) =====
@@ -219,17 +219,33 @@ def main():
     # ---- 读 config: UI png 固定不变, HDR bin 逐帧变化 ----
     cfg = load_config(args.config)
     common.set_dims(cfg['common']['height'], cfg['common']['width'])
-    ui_alpha = resolve_path(cfg['common']['ui_alpha_png'])   # UI alpha png (固定)
-    ui_rgb = resolve_path(cfg['common']['ui_rgb_png'])       # UI rgb png (固定)
+
+    # 必填输入: UI png (固定), 检查已填 + 文件存在
+    for p, name in [(cfg['common']['ui_alpha_png'], 'common.ui_alpha_png'),
+                     (cfg['common']['ui_rgb_png'], 'common.ui_rgb_png')]:
+        if not path_filled(p):
+            raise SystemExit(f"config.{name} 未设置")
+    ui_alpha = resolve_path(cfg['common']['ui_alpha_png'])
+    ui_rgb = resolve_path(cfg['common']['ui_rgb_png'])
+    for p, name in [(ui_alpha, 'common.ui_alpha_png'), (ui_rgb, 'common.ui_rgb_png')]:
+        if not os.path.isfile(p):
+            raise SystemExit(f"文件不存在: {p} (config.{name})")
+
+    # 必填: 原始 HDR bin 目录, 检查已填 + 目录存在
+    if not path_filled(cfg['task1']['hdr_dir']) and not args.hdr_dir:
+        raise SystemExit("config.task1.hdr_dir 未设置")
+    hdr_dir = args.hdr_dir or resolve_path(cfg['task1']['hdr_dir'])
+    if not os.path.isdir(hdr_dir):
+        raise SystemExit(f"目录不存在: {hdr_dir} (config.task1.hdr_dir)")
+
+    # 必填: 输出目录
+    if not path_filled(cfg['task1']['outdir']) and not args.outdir:
+        raise SystemExit("config.task1.outdir 未设置")
+    outdir = args.outdir or resolve_path(cfg['task1']['outdir'])
+    os.makedirs(outdir, exist_ok=True)
+
     f = float(cfg['common'].get('f', 1.0))                   # 沉浸度滑块 (Eff.Alpha 强度, §5.1)
     fy = float(cfg['common'].get('fy', 1.0))                 # 亮度保真度滑块 (Y-Scale 强度, §5.2)
-    hdr_dir = args.hdr_dir or resolve_path(cfg['task1']['hdr_dir'])
-    outdir = args.outdir or resolve_path(cfg['task1']['outdir'])
-    if not hdr_dir:
-        raise SystemExit("config.task1.hdr_dir 未设置")
-    if not outdir:
-        raise SystemExit("config.task1.outdir 未设置")
-    os.makedirs(outdir, exist_ok=True)
 
     # ---- 遍历所有原始 HDR bin (排除任务1/2/3 产生的后缀文件), 逐帧处理 ----
     #   每帧 HDR bin -> 对应输出 _uiAlpha.bin + _uiRGB.bin

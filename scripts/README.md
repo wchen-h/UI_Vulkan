@@ -107,10 +107,10 @@ out = linearToPQ(clip(mixed, 0, 10000)) → A2B10G10R10 (A=1)
 UI 外 `eff=0` → `mixed = bgNit` (原背景不变)。输出 `<hdr名>_withUI.bin` (A2B10G10R10 PQ BT.2020)。
 
 ```bash
-python3 blend_ui.py --config config.json [--hdr-dir X] [--ui-alpha-bin A] [--ui-rgb-bin R] [--outdir Z]
+python3 blend_ui.py --config config.json [--hdr-dir X] [--ui-dir D] [--outdir Z]
 ```
 
-> `task2.ui_alpha_bin` / `task2.ui_rgb_bin` 直接指向任务1 输出的 `_uiAlpha.bin` / `_uiRGB.bin` (绝对路径, 不再按名推导); `task2.hdr_dir` 与任务1 相同 (原始背景 bin)。
+> `task2.ui_dir` 可选, 默认 `task1.outdir` (任务1 输出); 脚本按 HDR 名配对 `<hdr名>_uiAlpha.bin` / `_uiRGB.bin`。`task2.hdr_dir` 与任务1 相同 (原始背景 bin)。
 
 ### 任务3: `make_video.py` — HDR10 视频编码
 
@@ -132,6 +132,8 @@ python3 make_video.py --config config.json [--blended-dir X] [--video-out Y] [--
 
 所有脚本都用 `--config` 指定 config.json 路径 (默认项目根目录的 `config.json`), 其余参数覆盖 config 中对应字段 (命令行优先, 留空则用 config 值)。字段说明见根目录 `config.json` (各值即注释)。
 
+**路径校验**: 各脚本启动时检查路径是否存在。必填项 (如 `task1.hdr_dir`、`task1.outdir`、`task3.video_out`、`task3.encoder_script`) 未填或不存在则报错; 有默认值的项 (`task2.ui_dir` 默认 `task1.outdir`, make_video 混合目录默认 `task2.outdir`) 未填但默认路径有目标文件则不报错。
+
 ### `adjust_ui.py`
 
 | 参数           | 默认        | 说明                                  |
@@ -142,13 +144,12 @@ python3 make_video.py --config config.json [--blended-dir X] [--video-out Y] [--
 
 ### `blend_ui.py`
 
-| 参数              | 默认        | 说明                                          |
-|-------------------|-------------|-----------------------------------------------|
-| `--config`        | config.json | config.json 路径                              |
-| `--hdr-dir`       | (config)    | 覆盖 `task2.hdr_dir`, 原始 HDR bin 目录         |
-| `--ui-alpha-bin`  | (config)    | 覆盖 `task2.ui_alpha_bin`, 任务1 输出 `_uiAlpha.bin` |
-| `--ui-rgb-bin`    | (config)    | 覆盖 `task2.ui_rgb_bin`, 任务1 输出 `_uiRGB.bin` |
-| `--outdir`        | (config)    | 覆盖 `task2.outdir`, 混合 bin 输出目录          |
+| 参数           | 默认            | 说明                                              |
+|----------------|-----------------|---------------------------------------------------|
+| `--config`     | config.json     | config.json 路径                                  |
+| `--hdr-dir`    | (config)        | 覆盖 `task2.hdr_dir`, 原始 HDR bin 目录             |
+| `--ui-dir`     | (task1.outdir)  | 覆盖 `task2.ui_dir`, 任务1 输出目录 (默认 `task1.outdir`) |
+| `--outdir`     | (config)        | 覆盖 `task2.outdir`, 混合 bin 输出目录              |
 
 ### `make_video.py`
 
