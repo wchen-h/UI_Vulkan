@@ -7,7 +7,7 @@
       │
       ▼
 ┌──────────────────┐
-│  rotate_hdr.py   │  任务0: 旋转180° → <名>_rotate.bin
+│  rotate_hdr.py   │  任务0: 垂直翻转 → <名>_rotate.bin
 └──────────────────┘
       │ _rotate 副本 (正向画面)
       ▼
@@ -72,15 +72,15 @@ pip install numpy pillow scipy
 
 ## 四段任务
 
-### 任务0: `rotate_hdr.py` — 旋转 HDR bin 180°
+### 任务0: `rotate_hdr.py` — 垂直翻转 HDR bin
 
-原始 HDR bin 画面上下颠倒, 需先旋转 180° (翻转行列 `raw[::-1, ::-1]`, 无损: 仅重排像素, 不经 PQ 解码)。输出 `<hdr名>_rotate.bin` 副本于同目录 `hdr_dir`; 已存在则跳过。
+原始 HDR bin 画面上下颠倒 (垂直翻转态), 需垂直翻转行序 (`raw[::-1, :]`, 无损: 仅重排像素, 不经 PQ 解码; 非 180° 旋转, 否则会引入左右镜像)。输出 `<hdr名>_rotate.bin` 副本于同目录 `hdr_dir`; 已存在则跳过。
 
 ```bash
 python3 rotate_hdr.py --config config.json [--hdr-dir X]
 ```
 
-> `task0.hdr_dir` 可选, 默认 `task1.hdr_dir`; 旋转后生成 `_rotate` 副本, 原始文件保留。
+> `task0.hdr_dir` 可选, 默认 `task1.hdr_dir`; 翻转后生成 `_rotate` 副本, 原始文件保留。
 
 ### 任务1: `adjust_ui.py` — UI 补偿调整
 
@@ -130,7 +130,7 @@ python3 blend_ui.py --config config.json [--hdr-dir X] [--ui-dir D] [--outdir Z]
 
 沿用 `commands.txt` 两步式:
 1. 生成 `metadata.txt` (HDR Vivid 动态元数据, 每行=帧号从1 + 固定十进制 payload; **文件已存在则跳过**, 复用已有 metadata)
-2. 拼接所有 `_withUI.bin` → raw → `ffmpeg_venc` 转 yuv420p10le → libx265 编码 HDR10 MP4
+2. 拼接所有最终帧 (`_withUI.bin` 或无 withUI 对应的 `_rotate.bin`) → raw → `ffmpeg_venc` 转 yuv420p10le → libx265 编码 HDR10 MP4
 
 编码参数: BT.2020 + PQ, master-display/max-cll=0, fps=30, bitrate=10M, `-tag:v hvc1`。
 
@@ -138,7 +138,7 @@ python3 blend_ui.py --config config.json [--hdr-dir X] [--ui-dir D] [--outdir Z]
 python3 make_video.py --config config.json [--blended-dir X] [--video-out Y] [--keep-temp]
 ```
 
-> 混合 bin 目录直接读 `task2.outdir` (无需在 task3 重复设置); `task3.encoder_script` 指向 `ffmpeg_venc` 可执行文件。`--blended-dir` 可临时覆盖。
+> 混合 bin 目录直接读 `task2.outdir` (无需在 task3 重复设置); `task3.encoder_script` 指向 `ffmpeg_venc` 可执行文件。`--blended-dir` 可临时覆盖。**帧收集**: 优先 `_withUI.bin` (经 task2); 无 withUI 对应的 `_rotate.bin` (采集已含 UI, 仅 task0 旋转, 跳过 task1/2) 也算最终帧。
 
 ---
 
@@ -190,7 +190,7 @@ python3 make_video.py --config config.json [--blended-dir X] [--video-out Y] [--
 ```bash
 cd <项目根>
 
-# 0. 旋转原始 HDR bin 180° (→ <名>_rotate.bin, 仅需一次)
+# 0. 垂直翻转原始 HDR bin (→ <名>_rotate.bin, 仅需一次)
 python3 scripts/rotate_hdr.py
 
 # 1. UI 补偿调整 (每帧 → _rotate_uiAlpha.bin + _rotate_uiRGB.bin)
@@ -216,7 +216,7 @@ python3 scripts/adjust_ui.py --outdir /tmp/task1_out
 | 文件              | 说明                                    |
 |-------------------|-----------------------------------------|
 | `common.py`       | 共享: 色彩转换 / bin 读写 / config 常量  |
-| `rotate_hdr.py`   | 任务0: 旋转 HDR bin 180°                |
+| `rotate_hdr.py`   | 任务0: 垂直翻转 HDR bin                |
 | `adjust_ui.py`    | 任务1: UI 补偿调整                       |
 | `blend_ui.py`     | 任务2: alpha 混合                        |
 | `make_video.py`   | 任务3: HDR10 编码                        |

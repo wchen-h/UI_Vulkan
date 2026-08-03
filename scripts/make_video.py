@@ -91,11 +91,22 @@ def main():
     fps, bitrate = 30, "10M"
     frame_bytes = W * H * 4
 
-    bins = sorted([os.path.join(blended_dir, fn) for fn in os.listdir(blended_dir)
-                   if fn.endswith('_withUI.bin')])
+    # 收集最终帧: 优先 _withUI.bin (经 task2); 无 _withUI 对应的 _rotate.bin
+    #   (采集时已含 UI, 跳过 task1/2, 仅 task0 旋转) 也算最终
+    final = {}   # stem -> path
+    for fn in os.listdir(blended_dir):
+        if not fn.endswith('.bin'):
+            continue
+        if fn.endswith('_withUI.bin'):
+            stem = fn[:-len('_withUI.bin')]
+            final[stem] = os.path.join(blended_dir, fn)   # withUI 优先 (覆盖同名 _rotate)
+        elif fn.endswith('_rotate.bin'):
+            stem = fn[:-len('.bin')]
+            final.setdefault(stem, os.path.join(blended_dir, fn))   # 仅当无 withUI 时采用
+    bins = sorted(final.values())
     n = len(bins)
     if n == 0:
-        raise SystemExit(f"{blended_dir} 下没有 *_withUI.bin")
+        raise SystemExit(f"{blended_dir} 下没有最终帧 (*_withUI.bin 或 *_rotate.bin)")
     print(f"frames: {n}, resolution: {W}x{H}, fps={fps}, bitrate={bitrate}")
 
     out_dir = os.path.dirname(os.path.abspath(video_out))

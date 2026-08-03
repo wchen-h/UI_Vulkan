@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-任务0: 旋转原始 HDR bin 180° (保存的原始画面上下颠倒)
+任务0: 垂直翻转原始 HDR bin (保存的原始画面上下颠倒)
 输入: HDR bin (A2B10G10R10 PQ BT.2020, 上下颠倒) 于 hdr_dir
-输出: <hdr名>_rotate.bin (旋转后副本, 存于同目录 hdr_dir)
+输出: <hdr名>_rotate.bin (翻转后副本, 存于同目录 hdr_dir)
 
-旋转 180° = 同时翻转行列 (raw[::-1, ::-1]); 无损操作 (仅重排像素, 不经 PQ 解码/编码)。
+垂直翻转 = 翻转行序 (raw[::-1, :]); 仅上下颠倒需此 (非 180° 旋转, 否则会引入左右镜像)。
+无损操作 (仅重排像素, 不经 PQ 解码/编码)。
 路径参数从 config.json (task0 节) 读取; task0.hdr_dir 默认 task1.hdr_dir。
 用法:
     python3 rotate_hdr.py [--config config.json] [--hdr-dir X]
@@ -18,9 +19,9 @@ from common import load_config, resolve_path, path_filled, CONFIG_PATH
 
 
 def rotate_one(path, out_path):
-    """读 HDR bin (A2B10G10R10 uint32), 旋转 180°, 写出"""
+    """读 HDR bin (A2B10G10R10 uint32), 垂直翻转 (上下颠倒修正), 写出"""
     raw = np.fromfile(path, dtype='<u4').reshape(common.H_IMG, common.W_IMG)
-    rotated = np.ascontiguousarray(raw[::-1, ::-1])   # 180°: 翻转行+列
+    rotated = np.ascontiguousarray(raw[::-1, :])   # 垂直翻转: 仅翻转行序
     rotated.tofile(out_path)
     return out_path
 
