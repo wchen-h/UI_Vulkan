@@ -7,8 +7,11 @@
     "f": 1.0,
     "fy": 1.0
   },
+  "task0": {
+    "hdr_dir": "<可选, 默认 task1.hdr_dir; CLI --hdr-dir>"
+  },
   "task1": {
-    "hdr_dir": "<原始 HDR bin 目录: 逐帧背景, 不含 UI; CLI --hdr-dir>",
+    "hdr_dir": "<原始 HDR bin 目录 (含 task0 旋转的 _rotate 副本); CLI --hdr-dir>",
     "outdir": "<任务1 输出目录: _uiAlpha.bin + _uiRGB.bin; CLI --outdir>"
   },
   "task2": {

@@ -88,7 +88,7 @@ def main():
         raise SystemExit(f"ffmpeg_venc 未找到: {ffmpeg} (config.task3.encoder_script)")
 
     W, H = common.W_IMG, common.H_IMG   # 从 config 读取
-    fps, bitrate = 50, "10M"
+    fps, bitrate = 30, "10M"
     frame_bytes = W * H * 4
 
     bins = sorted([os.path.join(blended_dir, fn) for fn in os.listdir(blended_dir)

@@ -75,10 +75,11 @@ def main():
     outdir = args.outdir or resolve_path(cfg['task2']['outdir'])
     os.makedirs(outdir, exist_ok=True)
 
-    # 原始 HDR bin: 排除任务1/任务2产生的后缀文件
+    # 旋转后的 HDR bin (_rotate 副本): 与任务1 输出 (_rotate_uiAlpha/_uiRGB) 按名配对
     hdr_files = sorted([os.path.join(hdr_dir, fn) for fn in os.listdir(hdr_dir)
-                        if fn.endswith('.bin')
-                        and not fn.endswith(('_uiAlpha.bin', '_uiRGB.bin', '_withUI.bin'))])
+                        if fn.endswith('_rotate.bin')])
+    if not hdr_files:
+        raise SystemExit(f"{hdr_dir} 下未找到 *_rotate.bin; 请先运行 task0 旋转: python3 scripts/rotate_hdr.py")
     print(f"HDR bins: {len(hdr_files)}, UI dir={ui_dir}")
     n_ok = 0
     for h in hdr_files:

@@ -1,25 +1,29 @@
 # scripts/ — HDR UI 补偿与视频编码流水线
 
-三段式流水线: 对 UI 做亮度和不透明度的 HDR 补偿 → 与 HDR 背景做 alpha 混合 → 编码 HDR10 视频。
+四段式流水线: 旋转原始 HDR 画面 → 对 UI 做亮度和不透明度的 HDR 补偿 → 与 HDR 背景做 alpha 混合 → 编码 HDR10 视频。
 
 ```
- 原始 HDR bin 序列            原始 HDR bin 序列
-        │                            │
-        ▼                            ▼
+原始 HDR bin (上下颠倒)
+      │
+      ▼
+┌──────────────────┐
+│  rotate_hdr.py   │  任务0: 旋转180° → <名>_rotate.bin
+└──────────────────┘
+      │ _rotate 副本 (正向画面)
+      ▼
 ┌─────────────────┐         ┌─────────────────┐
-│  adjust_ui.py   │         │   blend_ui.py   │
+│  adjust_ui.py   │  UI bin │   blend_ui.py   │
 │  (任务1 补偿)    │ ──────► │  (任务2 混合)     │
-│                 │  UI bin │                 │
 └─────────────────┘         └─────────────────┘
-        ▲                            │
-        │                            ▼
-   UI png + alpha              ┌─────────────────┐
-   (固定不变)                   │  make_video.py  │
-                               │  (任务3 编码)    │
-                               └─────────────────┘
-                                        │
-                                        ▼
-                                   HDR10 MP4
+      ▲                            │
+      │                            ▼
+ UI png + alpha             ┌─────────────────┐
+ (固定不变)                  │  make_video.py  │
+                            │  (任务3 编码)    │
+                            └─────────────────┘
+                                     │
+                                     ▼
+                                HDR10 MP4
 ```
 
 所有脚本共享 `common.py` (色彩转换 / bin 读写 / config 读取), 路径参数统一从 `config.json` 读取, 可用命令行参数覆盖。字段说明见根目录 `config.json` (各占位值即注释)。
@@ -66,19 +70,29 @@ pip install numpy pillow scipy
 
 ---
 
-## 三段任务
+## 四段任务
+
+### 任务0: `rotate_hdr.py` — 旋转 HDR bin 180°
+
+原始 HDR bin 画面上下颠倒, 需先旋转 180° (翻转行列 `raw[::-1, ::-1]`, 无损: 仅重排像素, 不经 PQ 解码)。输出 `<hdr名>_rotate.bin` 副本于同目录 `hdr_dir`; 已存在则跳过。
+
+```bash
+python3 rotate_hdr.py --config config.json [--hdr-dir X]
+```
+
+> `task0.hdr_dir` 可选, 默认 `task1.hdr_dir`; 旋转后生成 `_rotate` 副本, 原始文件保留。
 
 ### 任务1: `adjust_ui.py` — UI 补偿调整
 
-对每个 UI 像素, 根据其所在区域的 HDR 背景亮度 B 计算**有效不透明度 (Eff.Alpha)** 和**亮度缩放 (Y-Scale)**。
+读取任务0 旋转后的 `*_rotate.bin`; 若 `hdr_dir` 下未找到则提示先运行 task0。对每个 UI 像素, 根据其所在区域的 HDR 背景亮度 B 计算**有效不透明度 (Eff.Alpha)** 和**亮度缩放 (Y-Scale)**。
 
 **流程:**
 1. 在 `alpha.png` 上做 8 连通域识别 → UI 的 bbox; 删除 bbox 内 `alpha>0` 像素占比 < 50% 的碎片
 2. 合并重叠 bbox; 每个 bbox 取 2 倍宽高的背景区域 (越界裁到图像边界), 算 BT.2020 luma 平均得 B, clamp [30, 1000] nit
 3. 逐像素算 Eff.Alpha (中性/彩色分支), 线性 nits 域做 Y-Scale
 4. 输出两个 bin:
-   - `<hdr名>_uiAlpha.bin` — 单通道 fp16, 每像素 Eff.Alpha [0,1]
-   - `<hdr名>_uiRGB.bin` — A2B10G10R10 PQ BT.2020 (A=1), 补偿后 UI 颜色
+   - `<hdr名>_rotate_uiAlpha.bin` — 单通道 fp16, 每像素 Eff.Alpha [0,1]
+   - `<hdr名>_rotate_uiRGB.bin` — A2B10G10R10 PQ BT.2020 (A=1), 补偿后 UI 颜色
 
 **补偿模型** (详见 `tests/hdr_compensation_plan/hdr_compensation_plan_v2.md` §4.2/4.3/5.1/5.2):
 
@@ -104,13 +118,13 @@ mixed = uiNit · eff + bgNit · (1 − eff)   # eff 来自任务1 _uiAlpha.bin
 out = linearToPQ(clip(mixed, 0, 10000)) → A2B10G10R10 (A=1)
 ```
 
-UI 外 `eff=0` → `mixed = bgNit` (原背景不变)。输出 `<hdr名>_withUI.bin` (A2B10G10R10 PQ BT.2020)。
+UI 外 `eff=0` → `mixed = bgNit` (原背景不变)。输出 `<hdr名>_rotate_withUI.bin` (A2B10G10R10 PQ BT.2020)。
 
 ```bash
 python3 blend_ui.py --config config.json [--hdr-dir X] [--ui-dir D] [--outdir Z]
 ```
 
-> `task2.ui_dir` 可选, 默认 `task1.outdir` (任务1 输出); 脚本按 HDR 名配对 `<hdr名>_uiAlpha.bin` / `_uiRGB.bin`。`task2.hdr_dir` 与任务1 相同 (原始背景 bin)。
+> `task2.ui_dir` 可选, 默认 `task1.outdir` (任务1 输出); 脚本读 `*_rotate.bin` 并按名配对 `<hdr名>_rotate_uiAlpha.bin` / `_rotate_uiRGB.bin`。`task2.hdr_dir` 与任务1 相同 (读 `_rotate` 副本)。
 
 ### 任务3: `make_video.py` — HDR10 视频编码
 
@@ -118,7 +132,7 @@ python3 blend_ui.py --config config.json [--hdr-dir X] [--ui-dir D] [--outdir Z]
 1. 生成 `metadata.txt` (HDR Vivid 动态元数据, 每行=帧号从1 + 固定十进制 payload; **文件已存在则跳过**, 复用已有 metadata)
 2. 拼接所有 `_withUI.bin` → raw → `ffmpeg_venc` 转 yuv420p10le → libx265 编码 HDR10 MP4
 
-编码参数: BT.2020 + PQ, master-display/max-cll=0, fps=50, bitrate=10M, `-tag:v hvc1`。
+编码参数: BT.2020 + PQ, master-display/max-cll=0, fps=30, bitrate=10M, `-tag:v hvc1`。
 
 ```bash
 python3 make_video.py --config config.json [--blended-dir X] [--video-out Y] [--keep-temp]
@@ -133,6 +147,13 @@ python3 make_video.py --config config.json [--blended-dir X] [--video-out Y] [--
 所有脚本都用 `--config` 指定 config.json 路径 (默认项目根目录的 `config.json`), 其余参数覆盖 config 中对应字段 (命令行优先, 留空则用 config 值)。字段说明见根目录 `config.json` (各值即注释)。
 
 **路径校验**: 各脚本启动时检查路径是否存在。必填项 (如 `task1.hdr_dir`、`task1.outdir`、`task3.video_out`、`task3.encoder_script`) 未填或不存在则报错; 有默认值的项 (`task2.ui_dir` 默认 `task1.outdir`, make_video 混合目录默认 `task2.outdir`) 未填但默认路径有目标文件则不报错。
+
+### `rotate_hdr.py`
+
+| 参数           | 默认            | 说明                                              |
+|----------------|-----------------|---------------------------------------------------|
+| `--config`     | config.json     | config.json 路径                                  |
+| `--hdr-dir`    | (task1.hdr_dir) | 覆盖 `task0.hdr_dir`, 原始 HDR bin 目录 (默认 `task1.hdr_dir`) |
 
 ### `adjust_ui.py`
 
@@ -160,7 +181,7 @@ python3 make_video.py --config config.json [--blended-dir X] [--video-out Y] [--
 | `--video-out`     | (config)    | 覆盖 `task3.video_out`, 输出 MP4 路径     |
 | `--keep-temp`     | (flag)      | 保留中间 raw/yuv 临时文件 (默认删除)       |
 
-任务1/2 的脚本自动按后缀排除 (`_uiAlpha.bin` / `_uiRGB.bin` / `_withUI.bin`) 来识别原始 HDR bin, 因此原始 bin 与输出可放同一目录 (但建议分开)。
+任务0 旋转原始 `*.bin` (排除 `_rotate`/`_uiAlpha`/`_uiRGB`/`_withUI` 后缀) → `<名>_rotate.bin`; 任务1/2 读取 `*_rotate.bin`。原始 bin 与输出可放同一目录 (但建议分开)。
 
 ---
 
@@ -169,10 +190,13 @@ python3 make_video.py --config config.json [--blended-dir X] [--video-out Y] [--
 ```bash
 cd <项目根>
 
-# 1. UI 补偿调整 (每帧 → _uiAlpha.bin + _uiRGB.bin)
+# 0. 旋转原始 HDR bin 180° (→ <名>_rotate.bin, 仅需一次)
+python3 scripts/rotate_hdr.py
+
+# 1. UI 补偿调整 (每帧 → _rotate_uiAlpha.bin + _rotate_uiRGB.bin)
 python3 scripts/adjust_ui.py
 
-# 2. 与 HDR 背景混合 (每帧 → _withUI.bin)
+# 2. 与 HDR 背景混合 (每帧 → _rotate_withUI.bin)
 python3 scripts/blend_ui.py
 
 # 3. 编码 HDR10 视频 (→ output.mp4 + metadata.txt)
@@ -192,6 +216,7 @@ python3 scripts/adjust_ui.py --outdir /tmp/task1_out
 | 文件              | 说明                                    |
 |-------------------|-----------------------------------------|
 | `common.py`       | 共享: 色彩转换 / bin 读写 / config 常量  |
+| `rotate_hdr.py`   | 任务0: 旋转 HDR bin 180°                |
 | `adjust_ui.py`    | 任务1: UI 补偿调整                       |
 | `blend_ui.py`     | 任务2: alpha 混合                        |
 | `make_video.py`   | 任务3: HDR10 编码                        |

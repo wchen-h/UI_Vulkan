@@ -247,11 +247,14 @@ def main():
     f = float(cfg['common'].get('f', 1.0))                   # 沉浸度滑块 (Eff.Alpha 强度, §5.1)
     fy = float(cfg['common'].get('fy', 1.0))                 # 亮度保真度滑块 (Y-Scale 强度, §5.2)
 
-    # ---- 遍历所有原始 HDR bin (排除任务1/2/3 产生的后缀文件), 逐帧处理 ----
-    #   每帧 HDR bin -> 对应输出 _uiAlpha.bin + _uiRGB.bin
+    # ---- 遍历旋转后的 HDR bin (_rotate 副本), 逐帧处理 ----
+    #   原始 HDR bin 上下颠倒, 需先经 task0 (rotate_hdr.py) 旋转 180° 生成 <名>_rotate.bin
+    #   每帧 -> 对应输出 <名>_rotate_uiAlpha.bin + <名>_rotate_uiRGB.bin
     hdr_files = sorted([os.path.join(hdr_dir, fn) for fn in os.listdir(hdr_dir)
-                        if fn.endswith('.bin')
-                        and not fn.endswith(('_uiAlpha.bin', '_uiRGB.bin', '_withUI.bin'))])
+                        if fn.endswith('_rotate.bin')])
+    if not hdr_files:
+        raise SystemExit(f"{hdr_dir} 下未找到 *_rotate.bin; 原始 HDR 画面上下颠倒, "
+                         f"请先运行 task0 旋转: python3 scripts/rotate_hdr.py")
     print(f"UI: alpha={ui_alpha} rgb={ui_rgb} f={f} fy={fy}")
     print(f"HDR bins: {len(hdr_files)}")
     for h in hdr_files:
