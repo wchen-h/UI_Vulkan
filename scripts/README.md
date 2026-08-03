@@ -129,7 +129,7 @@ python3 blend_ui.py --config config.json [--hdr-dir X] [--ui-dir D] [--outdir Z]
 ### 任务3: `make_video.py` — HDR10 视频编码
 
 沿用 `commands.txt` 两步式:
-1. 生成 `metadata.txt` (HDR Vivid 动态元数据, 每行=帧号从1 + 固定十进制 payload; **文件已存在则跳过**, 复用已有 metadata)
+1. 生成 `metadata.txt` (HDR Vivid 动态元数据, 每行=帧号从1 + 固定十进制 payload; **行数与当前帧数一致则复用, 否则重新生成**)
 2. 拼接所有最终帧 (`_withUI.bin` 或无 withUI 对应的 `_rotate.bin`) → raw → `ffmpeg_venc` 转 yuv420p10le → libx265 编码 HDR10 MP4
 
 编码参数: BT.2020 + PQ, master-display/max-cll=0, fps=30, bitrate=10M, `-tag:v hvc1`。

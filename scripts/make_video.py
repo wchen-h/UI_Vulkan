@@ -33,12 +33,17 @@ X265_PARAMS = ("keyint=50:bframes=0:colorprim=bt2020:transfer=smpte2084:"
 
 def generate_metadata(path, n_frames):
     """每行: 帧号(从1) + 空格 + 固定元数据; 共 n_frames 行
-    若文件已存在则跳过 (复用已有 metadata)"""
+    若文件已存在且行数 == n_frames 则复用 (省去重写); 否则 (含帧数变化) 重新生成"""
     if os.path.exists(path):
-        return path
+        with open(path, encoding='utf-8') as f:
+            existing = sum(1 for _ in f)
+        if existing == n_frames:
+            print(f"metadata: 复用 {path} (行数 {existing})")
+            return path
     with open(path, 'w', encoding='utf-8') as f:
         for i in range(1, n_frames + 1):
             f.write(f"{i} {METADATA_PAYLOAD}\n")
+    print(f"metadata: 重新生成 {path} ({n_frames} 行)")
     return path
 
 
@@ -113,7 +118,6 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
     metadata_path = os.path.join(out_dir, 'metadata.txt')
     generate_metadata(metadata_path, n)
-    print(f"metadata: {metadata_path} ({n} 行, 帧号 1..{n})")
 
     tmp = tempfile.mkdtemp(prefix='makevideo_')
     all_bin = os.path.join(tmp, 'all.bin')
