@@ -20,7 +20,7 @@ from common import (PAPER_WHITE_NIT, BT709_TO_BT2020,
                     srgb_to_linear, srgb_to_chroma, linear_to_pq,
                     rgb_to_ycbcr2020, ycbcr_to_rgb2020,
                     read_hdr_bin, pack_a2b10g10r10,
-                    load_config, resolve_path, path_filled, CONFIG_PATH)
+                    load_config, resolve_path, path_filled, natural_key, CONFIG_PATH)
 
 
 # ===== 补偿公式 (hdr_compensation_plan_v2.md 4.2/4.3 基础 + 5.1/5.2 f/fy 插值) =====
@@ -251,7 +251,7 @@ def main():
     #   原始 HDR bin 上下颠倒, 需先经 task0 (rotate_hdr.py) 旋转 180° 生成 <名>_rotate.bin
     #   每帧 -> 对应输出 <名>_rotate_uiAlpha.bin + <名>_rotate_uiRGB.bin
     hdr_files = sorted([os.path.join(hdr_dir, fn) for fn in os.listdir(hdr_dir)
-                        if fn.endswith('_rotate.bin')])
+                        if fn.endswith('_rotate.bin')], key=natural_key)
     if not hdr_files:
         raise SystemExit(f"{hdr_dir} 下未找到 *_rotate.bin; 原始 HDR 画面上下颠倒, "
                          f"请先运行 task0 旋转: python3 scripts/rotate_hdr.py")

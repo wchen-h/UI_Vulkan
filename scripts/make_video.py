@@ -19,7 +19,7 @@ import subprocess
 import tempfile
 
 import common
-from common import load_config, resolve_path, path_filled, CONFIG_PATH
+from common import load_config, resolve_path, path_filled, natural_key, CONFIG_PATH
 
 # HDR Vivid 动态元数据 (固定十进制参数, 来自用户提供)
 METADATA_PAYLOAD = ("1 1 1343 0 3948 1 1 2770 1 5717 24 897 0 10 1 1 1 6 6 1 1 0 "
@@ -126,7 +126,7 @@ def main():
         elif fn.endswith('_rotate.bin'):
             stem = fn[:-len('.bin')]
             final.setdefault(stem, os.path.join(blended_dir, fn))   # 仅当无 withUI 时采用
-    bins = sorted(final.values())
+    bins = sorted(final.values(), key=natural_key)
     n = len(bins)
     if n == 0:
         raise SystemExit(f"{blended_dir} 下没有最终帧 (*_withUI.bin 或 *_rotate.bin)")

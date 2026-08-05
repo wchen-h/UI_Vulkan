@@ -19,7 +19,7 @@ import os
 import numpy as np
 
 import common
-from common import (load_config, resolve_path, path_filled, CONFIG_PATH,
+from common import (load_config, resolve_path, path_filled, natural_key, CONFIG_PATH,
                     read_hdr_bin, read_uialpha_bin, linear_to_pq,
                     pack_a2b10g10r10, PQ_MAX_NIT)
 
@@ -77,7 +77,7 @@ def main():
 
     # 旋转后的 HDR bin (_rotate 副本): 与任务1 输出 (_rotate_uiAlpha/_uiRGB) 按名配对
     hdr_files = sorted([os.path.join(hdr_dir, fn) for fn in os.listdir(hdr_dir)
-                        if fn.endswith('_rotate.bin')])
+                        if fn.endswith('_rotate.bin')], key=natural_key)
     if not hdr_files:
         raise SystemExit(f"{hdr_dir} 下未找到 *_rotate.bin; 请先运行 task0 旋转: python3 scripts/rotate_hdr.py")
     print(f"HDR bins: {len(hdr_files)}, UI dir={ui_dir}")

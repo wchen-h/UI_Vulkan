@@ -15,7 +15,7 @@ import os
 import numpy as np
 
 import common
-from common import load_config, resolve_path, path_filled, CONFIG_PATH
+from common import load_config, resolve_path, path_filled, natural_key, CONFIG_PATH
 
 
 def rotate_one(path, out_path):
@@ -53,7 +53,7 @@ def main():
     files = sorted([os.path.join(hdr_dir, fn) for fn in os.listdir(hdr_dir)
                     if fn.endswith('.bin')
                     and not fn.endswith(('_rotate.bin', '_uiAlpha.bin',
-                                         '_uiRGB.bin', '_withUI.bin'))])
+                                         '_uiRGB.bin', '_withUI.bin'))], key=natural_key)
     print(f"HDR bins: {len(files)}, hdr_dir={hdr_dir}")
     n = 0
     for f in files:

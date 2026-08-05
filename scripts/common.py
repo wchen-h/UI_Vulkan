@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """共享: 色彩转换、HDR bin 读写、config 读取 (adjust_ui / blend_ui 共用)"""
 import os
+import re
 import json
 import numpy as np
 
@@ -54,6 +55,12 @@ def set_dims(h, w):
 def path_filled(p):
     """路径是否已填写 (非空且非 <...> 占位符); 用于 config 必填校验"""
     return bool(p) and not str(p).startswith('<')
+
+
+def natural_key(p):
+    """自然排序键: 按文件名中的数字段数值排序 (frame_2 < frame_10, 而非字典序)"""
+    return [int(t) if t.isdigit() else t
+            for t in re.split(r'(\d+)', os.path.basename(str(p)))]
 
 
 # ===== 色彩转换 =====
