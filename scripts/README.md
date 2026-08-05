@@ -126,19 +126,24 @@ python3 blend_ui.py --config config.json [--hdr-dir X] [--ui-dir D] [--outdir Z]
 
 > `task2.ui_dir` 可选, 默认 `task1.outdir` (任务1 输出); 脚本读 `*_rotate.bin` 并按名配对 `<hdr名>_rotate_uiAlpha.bin` / `_rotate_uiRGB.bin`。`task2.hdr_dir` 与任务1 相同 (读 `_rotate` 副本)。
 
-### 任务3: `make_video.py` — HDR10 视频编码
+### 任务3: `make_video.py` — HDR10 / SDR 视频编码
 
-沿用 `commands.txt` 两步式:
-1. 生成 `metadata.txt` (HDR Vivid 动态元数据, 每行=帧号从1 + 固定十进制 payload; **行数与当前帧数一致则复用, 否则重新生成**)
-2. 拼接所有最终帧 (`_withUI.bin` 或无 withUI 对应的 `_rotate.bin`) → raw → `ffmpeg_venc` 转 yuv420p10le → libx265 编码 HDR10 MP4
+沿用 `commands.txt` 两步式 (bin 格式 HDR/SDR 相同: A2B10G10R10; HDR=PQ+BT.2020, SDR=sRGB+BT.709):
+1. (仅 HDR) 生成 `metadata.txt` (HDR Vivid 动态元数据, 每行=帧号从1 + 固定十进制 payload; **行数与当前帧数一致则复用, 否则重新生成**)
+2. 拼接所有最终帧 (`_withUI.bin` 或无 withUI 对应的 `_rotate.bin`) → raw → `ffmpeg_venc` 转 yuv420p10le → libx265 编码 MP4
 
-编码参数: BT.2020 + PQ, master-display/max-cll=0, fps=30, bitrate=10M, `-tag:v hvc1`。
+| 模式 | x265 参数 | 元数据 | 输出 |
+|------|-----------|--------|------|
+| `hdr` (默认) | BT.2020 + PQ + master-display + max-cll=0 | `-vmeta_url metadata.txt` | `video_out` |
+| `sdr` | BT.709 + sRGB (`iec61966-2-1`), 无 master-display/vmeta | 无 | `sdr_video_out` |
+
+fps=30, bitrate=10M, `-tag:v hvc1`。
 
 ```bash
-python3 make_video.py --config config.json [--blended-dir X] [--video-out Y] [--keep-temp]
+python3 make_video.py --mode hdr|sdr [--config config.json] [--blended-dir X] [--video-out Y] [--sdr-video-out S] [--keep-temp]
 ```
 
-> 混合 bin 目录直接读 `task2.outdir` (无需在 task3 重复设置); `task3.encoder_script` 指向 `ffmpeg_venc` 可执行文件。`--blended-dir` 可临时覆盖。**帧收集**: 优先 `_withUI.bin` (经 task2); 无 withUI 对应的 `_rotate.bin` (采集已含 UI, 仅 task0 旋转, 跳过 task1/2) 也算最终帧。
+> 混合 bin 目录直接读 `task2.outdir` (无需在 task3 重复设置); `task3.encoder_script` 指向 `ffmpeg_venc` 可执行文件。`--blended-dir` 可临时覆盖。**帧收集**: 优先 `_withUI.bin` (经 task2); 无 withUI 对应的 `_rotate.bin` (采集已含 UI, 仅 task0 旋转, 跳过 task1/2) 也算最终帧。SDR 模式需 `--sdr-video-out` 或 `config.task3.sdr_video_out`。
 
 ---
 
@@ -174,12 +179,14 @@ python3 make_video.py --config config.json [--blended-dir X] [--video-out Y] [--
 
 ### `make_video.py`
 
-| 参数              | 默认        | 说明                                      |
-|-------------------|-------------|-------------------------------------------|
-| `--config`        | config.json | config.json 路径                          |
-| `--blended-dir`   | (task2.outdir) | 覆盖混合 bin 目录 (默认 `task2.outdir`)     |
-| `--video-out`     | (config)    | 覆盖 `task3.video_out`, 输出 MP4 路径     |
-| `--keep-temp`     | (flag)      | 保留中间 raw/yuv 临时文件 (默认删除)       |
+| 参数              | 默认            | 说明                                              |
+|-------------------|-----------------|---------------------------------------------------|
+| `--config`        | config.json     | config.json 路径                                  |
+| `--mode`          | hdr             | `hdr` (HDR10 BT.2020+PQ) / `sdr` (BT.709+sRGB)     |
+| `--blended-dir`   | (task2.outdir)  | 覆盖混合 bin 目录 (默认 `task2.outdir`)             |
+| `--video-out`     | (config)        | 覆盖 `task3.video_out`, HDR 输出 MP4 路径           |
+| `--sdr-video-out` | (config)        | 覆盖 `task3.sdr_video_out`, SDR 输出 MP4 路径 (mode=sdr 必填) |
+| `--keep-temp`     | (flag)          | 保留中间 raw/yuv 临时文件 (默认删除)               |
 
 任务0 旋转原始 `*.bin` (排除 `_rotate`/`_uiAlpha`/`_uiRGB`/`_withUI` 后缀) → `<名>_rotate.bin`; 任务1/2 读取 `*_rotate.bin`。原始 bin 与输出可放同一目录 (但建议分开)。
 

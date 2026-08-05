@@ -20,7 +20,8 @@
     "outdir": "<任务2 输出目录: _withUI.bin; CLI --outdir>"
   },
   "task3": {
-    "video_out": "<输出 MP4 路径; CLI --video-out>",
+    "video_out": "<输出 MP4 路径 (HDR); CLI --video-out>",
+    "sdr_video_out": "<可选, SDR 输出 MP4 路径; CLI --sdr-video-out>",
     "encoder_script": "<ffmpeg_venc 可执行文件路径 (带 -vmeta_url)>"
   }
 }

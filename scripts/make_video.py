@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """
-任务3: 含 UI 的 HDR bin 序列 -> HDR10 视频 (make_video.py)
+任务3: bin 序列 -> HDR10/SDR 视频 (make_video.py)
 流程 (沿用 commands.txt 两步式):
-    1. 生成 metadata.txt (HDR Vivid 动态元数据, 每行 = 帧号 + 固定十进制参数, 帧号从1递增)
-    2. cat 所有 <名>_withUI.bin 拼成一个 raw 序列 -> 命令2转 yuv420p10le
-    3. 命令1: yuv -> libx265 HDR10 MP4 (BT.2020 + PQ + master-display, -vmeta_url metadata.txt)
+    1. (仅 HDR) 生成 metadata.txt (HDR Vivid 动态元数据, 行数==帧数则复用, 否则重新生成)
+    2. cat 所有最终帧 -> raw -> yuv420p10le
+    3. yuv -> libx265 MP4: HDR (BT.2020+PQ+master-display+-vmeta_url) 或 SDR (BT.709+sRGB)
 
-分辨率从 config.json 的 common.width/height 读取 (默认 2328×1080, 即 -s 2328x1080)。
-路径参数从 config.json (task3 节) 读取。
+bin 格式 (HDR/SDR 相同): A2B10G10R10 UNORM 小端 uint32; HDR 为 PQ+BT.2020, SDR 为 sRGB+BT.709。
+分辨率从 config.json 的 common.width/height 读取 (默认 2328×1080)。
 用法:
-    python3 make_video.py [--config config.json] [--blended-dir X] [--video-out Y] [--keep-temp]
+    python3 make_video.py [--mode hdr|sdr] [--config config.json] [--blended-dir X]
+                           [--video-out Y] [--sdr-video-out S] [--keep-temp]
 """
 import argparse
 import os
@@ -29,6 +30,9 @@ METADATA_PAYLOAD = ("1 1 1343 0 3948 1 1 2770 1 5717 24 897 0 10 1 1 1 6 6 1 1 0
 X265_PARAMS = ("keyint=50:bframes=0:colorprim=bt2020:transfer=smpte2084:"
                "colormatrix=bt2020nc:master-display=G(13250,34500)B(7500,3000)"
                "R(34000,16000)WP(15635,16450)L(12100000,60):max-cll=0.0")
+
+# libx265 SDR 参数 (BT.709 色域 + sRGB 传输函数; 无 master-display/max-cll/vmeta)
+X265_SDR_PARAMS = "keyint=50:bframes=0:colorprim=bt709:transfer=iec61966-2-1:colormatrix=bt709"
 
 
 def generate_metadata(path, n_frames):
@@ -62,8 +66,11 @@ def concat_bins(bins, out_path, frame_bytes):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--config', default=CONFIG_PATH, help='config.json 路径')
+    ap.add_argument('--mode', choices=['hdr', 'sdr'], default='hdr',
+                    help='合成模式: hdr (HDR10 BT.2020+PQ, 默认) / sdr (BT.709+sRGB)')
     ap.add_argument('--blended-dir', default=None, help='覆盖混合 bin 目录 (默认 config.task2.outdir)')
-    ap.add_argument('--video-out', default=None, help='覆盖 config.task3.video_out')
+    ap.add_argument('--video-out', default=None, help='覆盖 config.task3.video_out (HDR 输出)')
+    ap.add_argument('--sdr-video-out', default=None, help='SDR 视频输出路径 (mode=sdr 时; 或 config.task3.sdr_video_out)')
     ap.add_argument('--keep-temp', action='store_true', help='保留中间 raw/yuv 文件')
     args = ap.parse_args()
 
@@ -80,10 +87,21 @@ def main():
     if not os.path.isdir(blended_dir):
         raise SystemExit(f"混合 bin 目录不存在: {blended_dir}")
 
-    # 必填: 输出 MP4
+    # 必填: HDR 输出 MP4
     if not path_filled(cfg['task3']['video_out']) and not args.video_out:
         raise SystemExit("config.task3.video_out 未设置")
     video_out = args.video_out or resolve_path(cfg['task3']['video_out'])
+
+    # SDR 输出路径: --sdr-video-out 或 config.task3.sdr_video_out (mode=sdr 时必填)
+    sdr_video_out_cfg = cfg['task3'].get('sdr_video_out', '')
+    if args.sdr_video_out:
+        sdr_video_out = resolve_path(args.sdr_video_out)
+    elif path_filled(sdr_video_out_cfg):
+        sdr_video_out = resolve_path(sdr_video_out_cfg)
+    else:
+        sdr_video_out = None
+    if args.mode == 'sdr' and not sdr_video_out:
+        raise SystemExit("SDR 模式需指定输出路径: --sdr-video-out 或 config.task3.sdr_video_out")
 
     # 必填: ffmpeg_venc
     if not path_filled(cfg['task3']['encoder_script']):
@@ -114,16 +132,25 @@ def main():
         raise SystemExit(f"{blended_dir} 下没有最终帧 (*_withUI.bin 或 *_rotate.bin)")
     print(f"frames: {n}, resolution: {W}x{H}, fps={fps}, bitrate={bitrate}")
 
-    out_dir = os.path.dirname(os.path.abspath(video_out))
+    is_sdr = (args.mode == 'sdr')
+    out_video = sdr_video_out if is_sdr else video_out
+    print(f"mode: {'SDR (BT.709+sRGB)' if is_sdr else 'HDR (BT.2020+PQ)'}")
+
+    out_dir = os.path.dirname(os.path.abspath(out_video))
     os.makedirs(out_dir, exist_ok=True)
-    metadata_path = os.path.join(out_dir, 'metadata.txt')
-    generate_metadata(metadata_path, n)
+
+    # metadata 仅 HDR 模式需要 (HDR Vivid 动态元数据); SDR 跳过
+    if is_sdr:
+        metadata_path = None
+    else:
+        metadata_path = os.path.join(out_dir, 'metadata.txt')
+        generate_metadata(metadata_path, n)
 
     tmp = tempfile.mkdtemp(prefix='makevideo_')
     all_bin = os.path.join(tmp, 'all.bin')
     all_yuv = os.path.join(tmp, 'all.yuv')
     try:
-        # 命令2: cat 的 raw bin -> yuv420p10le
+        # 命令2: cat 的 raw bin -> yuv420p10le (HDR/SDR 共用, bin 格式相同)
         print("concatenating bins ->", all_bin)
         concat_bins(bins, all_bin, frame_bytes)
         cmd2 = [ffmpeg, "-y", "-f", "rawvideo", "-vcodec", "rawvideo",
@@ -132,19 +159,24 @@ def main():
         print("cmd2:", " ".join(cmd2))
         subprocess.run(cmd2, check=True)
 
-        # 命令1: yuv -> libx265 HDR10 MP4 (带 -vmeta_url metadata.txt)
+        # 命令1: yuv -> libx265 MP4
+        #   HDR: BT.2020+PQ+master-display + -vmeta_url metadata.txt
+        #   SDR: BT.709+sRGB, 无 master-display/vmeta
         cmd1 = [ffmpeg, "-s", f"{W}x{H}", "-pix_fmt", "yuv420p10le", "-r", str(fps),
                 "-i", all_yuv, "-fps_mode", "passthrough", "-b:v", bitrate,
-                "-c:v", "libx265", "-vmeta_url", metadata_path,
-                "-preset", "medium", "-x265-params", X265_PARAMS,
-                "-an", "-y", "-tag:v", "hvc1", video_out]
+                "-c:v", "libx265", "-preset", "medium",
+                "-x265-params", X265_SDR_PARAMS if is_sdr else X265_PARAMS,
+                "-an", "-y", "-tag:v", "hvc1"]
+        if not is_sdr:
+            cmd1 += ["-vmeta_url", metadata_path]
+        cmd1.append(out_video)
         print("cmd1:", " ".join(cmd1))
         subprocess.run(cmd1, check=True)
     finally:
         if not args.keep_temp:
             shutil.rmtree(tmp, ignore_errors=True)
 
-    print(f"Done. -> {video_out}")
+    print(f"Done ({'SDR' if is_sdr else 'HDR'}). -> {out_video}")
 
 
 if __name__ == '__main__':
