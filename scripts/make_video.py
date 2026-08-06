@@ -150,23 +150,32 @@ def main():
     all_bin = os.path.join(tmp, 'all.bin')
     all_yuv = os.path.join(tmp, 'all.yuv')
     try:
-        # 命令2: cat 的 raw bin -> yuv420p10le (HDR/SDR 共用, bin 格式相同)
         print("concatenating bins ->", all_bin)
         concat_bins(bins, all_bin, frame_bytes)
+        # 命令2: cat 的 raw bin -> yuv420p10le (full range, 显式矩阵, 不让 ffmpeg 做 full->limited 缩放)
+        matrix = "bt709" if is_sdr else "bt2020nc"
         cmd2 = [ffmpeg, "-y", "-f", "rawvideo", "-vcodec", "rawvideo",
-                "-pix_fmt", "x2bgr10le", "-s", f"{W}x{H}", "-i", all_bin,
-                "-pix_fmt", "yuv420p10le", all_yuv]
+                "-pix_fmt", "x2bgr10le", "-color_range", "pc",
+                "-s", f"{W}x{H}", "-i", all_bin,
+                "-vf", f"scale=in_range=pc:in_color_matrix={matrix}:"
+                       f"out_range=pc:out_color_matrix={matrix}",
+                "-pix_fmt", "yuv420p10le", "-color_range", "pc", all_yuv]
         print("cmd2:", " ".join(cmd2))
         subprocess.run(cmd2, check=True)
 
         # 命令1: yuv -> libx265 MP4
         #   HDR: BT.2020+PQ+master-display + -vmeta_url metadata.txt
         #   SDR: BT.709+sRGB, 无 master-display/vmeta
-        cmd1 = [ffmpeg, "-s", f"{W}x{H}", "-pix_fmt", "yuv420p10le", "-r", str(fps),
-                "-i", all_yuv, "-fps_mode", "passthrough", "-b:v", bitrate,
+        #   full range 透传 (range=full), 避免播放器按 limited 展开->整体偏亮
+        x265 = (X265_SDR_PARAMS if is_sdr else X265_PARAMS) + ":range=full"
+        cs = (["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "iec61966-2-1"]
+              if is_sdr else
+              ["-colorspace", "bt2020nc", "-color_primaries", "bt2020", "-color_trc", "smpte2084"])
+        cmd1 = [ffmpeg, "-s", f"{W}x{H}", "-pix_fmt", "yuv420p10le", "-color_range", "pc",
+                "-r", str(fps), "-i", all_yuv, "-fps_mode", "passthrough", "-b:v", bitrate,
                 "-c:v", "libx265", "-preset", "medium",
-                "-x265-params", X265_SDR_PARAMS if is_sdr else X265_PARAMS,
-                "-an", "-y", "-tag:v", "hvc1"]
+                "-x265-params", x265,
+                "-an", "-y", "-tag:v", "hvc1", "-color_range", "pc"] + cs
         if not is_sdr:
             cmd1 += ["-vmeta_url", metadata_path]
         cmd1.append(out_video)
