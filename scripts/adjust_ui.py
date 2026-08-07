@@ -186,6 +186,7 @@ def process(ui_alpha_png, ui_rgb_png, hdr_bin_path, outdir, f=1.0, fy=1.0):
     # 中性色/彩色判定: 逐像素 CIELAB C* (BT.709/D65), C*>5 视为彩色
     chroma = srgb_to_chroma(rgb)
     is_color = chroma > 5.0
+    black = (rgb.sum(axis=-1) == 0)   # 黑色像素 (rgb=0): 跳过 alpha 调节 (黑色曲线数据不足, 暂不调节)
 
     # ---- 步骤4: 逐像素调整 UI alpha -> Eff.Alpha (§4.2 模型 + §5.1 f 调节) ----
     #   输入: a=该像素初始 alpha, B=该像素所属 UI 的背景亮度, f=沉浸度滑块
@@ -199,6 +200,8 @@ def process(ui_alpha_png, ui_rgb_png, hdr_bin_path, outdir, f=1.0, fy=1.0):
     eff_with_delta = eff + d
     use_delta = is_color & (eff_with_delta <= 1.0)   # 彩色且不超 1 才加 Δ
     eff = np.where(use_delta, eff_with_delta, eff)
+    eff = np.where(a >= 1.0, 1.0, eff)   # 初始 alpha=1.0 (完全不透明) 保持 1.0, 不经公式/彩色Δ 调成半透明
+    eff = np.where(black, a, eff)   # 黑色像素 (rgb=0) 跳过 alpha 调节: eff=初始alpha (黑色曲线待补数据后拟合)
     eff = np.clip(eff, 0.0, 1.0)   # 下界 0: 低 a 彩色像素加 Δ 可能算出负
 
     # 输出 _uiAlpha.bin: 单通道 fp16, 每像素 Eff.Alpha [0,1]
@@ -212,7 +215,6 @@ def process(ui_alpha_png, ui_rgb_png, hdr_bin_path, outdir, f=1.0, fy=1.0):
     #     -> PQ encode -> ×1023 (10-bit) -> BT.2020 YCbCr -> Y×ys (Cb/Cr 不变)
     #     -> clamp -> YCbCr->RGB -> /1023 -> PQ code -> A2B10G10R10 (A=1)
     #   ys 由 B 决定 (§4.3, 与颜色/a 无关); 初始 rgb 全 0 的黑色像素直接输出 0
-    black = (rgb.sum(axis=-1) == 0)
     lin709 = srgb_to_linear(rgb) * PAPER_WHITE_NIT          # sRGB->linear, ×350 -> 线性nits BT.709
     lin2020 = lin709 @ BT709_TO_BT2020.T                     # BT.709->BT.2020 矩阵 -> 线性nits BT.2020
     pq = linear_to_pq(lin2020)                              # 线性nits -> PQ code [0,1]
