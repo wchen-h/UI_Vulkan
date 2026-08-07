@@ -16,8 +16,8 @@ from PIL import Image
 from scipy.ndimage import label as cc_label, find_objects
 
 import common
-from common import (PAPER_WHITE_NIT, BT709_TO_BT2020,
-                    srgb_to_linear, srgb_to_chroma, linear_to_pq,
+from common import (PAPER_WHITE_NIT, PQ_MAX_NIT, BT709_TO_BT2020,
+                    srgb_to_linear, srgb_to_chroma, linear_to_pq, pq_decode,
                     rgb_to_ycbcr2020, ycbcr_to_rgb2020,
                     read_hdr_bin, pack_a2b10g10r10,
                     load_config, resolve_path, path_filled, natural_key, CONFIG_PATH)
@@ -55,6 +55,38 @@ def yscale(B, fy):      # 5.2: ys(B,fy) = 1 + fy·(ys1(B)-1)
     sig = 1.0 / (1.0 + np.exp(-(B - 100.0) / 20.0))
     ys1 = 1.0 + 0.0837 * sig * np.log(np.maximum(1.0, B / 70.0))
     return 1.0 + fy * (ys1 - 1.0)
+
+
+# ===== 步骤6: inverse system tonemap =====
+
+def inverse_lut(lut, y):
+    """system tonemap 曲线求逆 (向量化); 边界与原标量逻辑严格一致:
+    y<=lut[0]->0; y>=lut[-1]->1.0; 中间段 searchsorted 找包含区间 (跳过 delta<1e-6 平段)。
+    顶部平台 (lut[-1]) 处的 0.906->1.0 跳变保留。"""
+    n = len(lut)
+    y = np.asarray(y, dtype=np.float64)
+    res = np.empty(y.shape, dtype=np.float64)
+    le = y <= lut[0]
+    ge = y >= lut[-1]
+    mid = ~(le | ge)
+    res[le] = 0.0
+    res[ge] = 1.0
+    ym = y[mid]
+    idx = np.clip(np.searchsorted(lut, ym, side='right') - 1, 0, n - 2)
+    y0 = lut[idx]; y1 = lut[idx + 1]; delta = y1 - y0
+    safe = np.abs(delta) >= 1e-6
+    t = np.where(safe, (ym - y0) / np.where(safe, delta, 1.0), 0.0)
+    res[mid] = (idx + t) / n
+    return res
+
+
+def calculate_inv_ratio(lut, pq):
+    """pq: (H,W,3) -> 每像素 inverse ratio (基于最大PQ通道); 零像素 ratio=1 防除零"""
+    max_pq = pq.max(axis=-1)
+    res = inverse_lut(lut, max_pq)
+    lin_max = pq_decode(max_pq)
+    lin_res = pq_decode(res)
+    return np.where(lin_max > 1e-9, lin_res / np.maximum(lin_max, 1e-9), 1.0)
 
 
 # ===== bbox 识别 + B 计算 =====
@@ -196,6 +228,23 @@ def process(ui_alpha_png, ui_rgb_png, hdr_bin_path, outdir, f=1.0, fy=1.0):
     B_adj = np.clip(B_adj, 0.0, 1023.0)
     pq_out = np.stack([R_adj, G_adj, B_adj], axis=-1) / 1023.0   # /1023 -> PQ code [0,1]
     pq_out[black] = 0.0                                     # 黑色像素 (初始 rgb 全 0) 直接输出 0
+
+    # ---- 步骤6：inverse system tonemap ----
+    # 步骤5 已按设计意图对 UI tonemap; 系统默认 tonemap 仍会作用其上致偏离,
+    # 故先施加系统 tonemap 的逆 (基于最大PQ通道求 inverse ratio, 三通道线性同比例缩放, 保色相),
+    # 使系统再施加 tonemap 后回到设计值。背景 (hdr bin) 采集时已 tonemap, 不在此处理。
+    systemTMOCurve = np.array([                             # PAPERWHITE = 350
+        0.000001, 0.032851, 0.065332, 0.097625, 0.129786, 0.161912, 0.195370,
+        0.228064, 0.258540, 0.288990, 0.321964, 0.359977, 0.402523,
+        0.444501, 0.485608, 0.525743, 0.564931, 0.602846, 0.633881, 0.658229,
+        0.689200, 0.731745, 0.776947, 0.814676, 0.845887, 0.877092, 0.908278,
+        0.939499, 0.970589, 0.999991, 0.999991, 0.999991
+        ])
+    inv_ratio = calculate_inv_ratio(systemTMOCurve, pq_out)            # (H,W) 每像素 inverse ratio
+    new_lin = pq_decode(pq_out) * inv_ratio[..., None]                # 三通道线性 ×ratio (保色相)
+    pq_out = linear_to_pq(np.clip(new_lin, 0.0, PQ_MAX_NIT))
+    pq_out[black] = 0.0                                               # 黑色像素保持 0
+
     rgb_packed = pack_a2b10g10r10(pq_out[..., 0] * 1023.0,
                                   pq_out[..., 1] * 1023.0,
                                   pq_out[..., 2] * 1023.0, A=1.0)   # -> A2B10G10R10 (A=1.0)
