@@ -74,13 +74,13 @@ pip install numpy pillow scipy
 
 ### 任务0: `rotate_hdr.py` — 垂直翻转 HDR bin
 
-原始 HDR bin 画面上下颠倒 (垂直翻转态), 需垂直翻转行序 (`raw[::-1, :]`, 无损: 仅重排像素, 不经 PQ 解码; 非 180° 旋转, 否则会引入左右镜像)。输出 `<hdr名>_rotate.bin` 副本于同目录 `hdr_dir`; 已存在则跳过。
+原始 HDR bin 画面上下颠倒 (垂直翻转态), 需垂直翻转行序 (`raw[::-1, :]`, 无损: 仅重排像素, 不经 PQ 解码; 非 180° 旋转, 否则会引入左右镜像)。输出 `<hdr名>_rotate.bin` 副本于 `rotate_dir` (默认 = `hdr_dir`, 即与原图同目录); 已存在则跳过。
 
 ```bash
-python3 rotate_hdr.py --config config.json [--hdr-dir X]
+python3 rotate_hdr.py --config config.json [--hdr-dir X] [--rotate-dir R]
 ```
 
-> `task0.hdr_dir` 可选, 默认 `task1.hdr_dir`; 翻转后生成 `_rotate` 副本, 原始文件保留。
+> `task0.hdr_dir` 可选, 默认 `task1.hdr_dir`; `task0.rotate_dir` 可选, 默认 `task0.hdr_dir` (`_rotate` 输出目录, 可与原图分开); 原始文件保留。
 
 ### 任务1: `adjust_ui.py` — UI 补偿调整
 
@@ -158,7 +158,8 @@ python3 make_video.py --mode hdr|sdr [--config config.json] [--blended-dir X] [-
 | 参数           | 默认            | 说明                                              |
 |----------------|-----------------|---------------------------------------------------|
 | `--config`     | config.json     | config.json 路径                                  |
-| `--hdr-dir`    | (task1.hdr_dir) | 覆盖 `task0.hdr_dir`, 原始 HDR bin 目录 (默认 `task1.hdr_dir`) |
+| `--hdr-dir`    | (task1.hdr_dir) | 覆盖 `task0.hdr_dir`, 原始 HDR bin 输入目录 (默认 `task1.hdr_dir`) |
+| `--rotate-dir` | (task0.hdr_dir) | 覆盖 `task0.rotate_dir`, `_rotate.bin` 输出目录 (默认 `task0.hdr_dir`) |
 
 ### `adjust_ui.py`
 

@@ -8,7 +8,8 @@
     "fy": 1.0
   },
   "task0": {
-    "hdr_dir": "<可选, 默认 task1.hdr_dir; CLI --hdr-dir>"
+    "hdr_dir": "<原始 HDR bin 输入目录; CLI --hdr-dir>",
+    "rotate_dir": "<可选, _rotate.bin 输出目录, 默认 task0.hdr_dir; CLI --rotate-dir>"
   },
   "task1": {
     "hdr_dir": "<原始 HDR bin 目录 (含 task0 旋转的 _rotate 副本); CLI --hdr-dir>",
