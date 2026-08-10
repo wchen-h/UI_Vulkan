@@ -226,7 +226,9 @@ def process(ui_alpha_png, ui_rgb_png, hdr_bin_path, outdir, f=1.0, fy=1.0):
     use_delta = is_color & (eff_with_delta <= 1.0)   # 彩色且不超 1 才加 Δ
     eff = np.where(use_delta, eff_with_delta, eff)
     eff = np.where(a >= 1.0, 1.0, eff)   # 初始 alpha=1.0 (完全不透明) 保持 1.0, 不经公式/彩色Δ 调成半透明
-    eff = np.where(black & (a < 1.0), eff_black(B_map, a, f), eff)   # 黑色半透明 (rgb=0, a<1) 用纯黑曲线 (4.2); 不透明 (a>=1.0) 仍由上式保持 1.0
+    bk = black & (a < 1.0)   # 黑色半透 (rgb=0, a<1) 用纯黑曲线 (4.2); 不透明 a>=1.0 仍由上式保持 1.0
+    if bk.any():
+        eff[bk] = eff_black(B_map[bk], a[bk], f)   # 仅对黑色半透子集计算 (省内存, 不算全帧)
     eff = np.clip(eff, 0.0, 1.0)   # 下界 0: 低 a 彩色像素加 Δ 可能算出负
 
     # 输出 _uiAlpha.bin: 单通道 fp16, 每像素 Eff.Alpha [0,1]
