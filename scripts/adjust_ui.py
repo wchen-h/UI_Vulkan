@@ -48,6 +48,31 @@ def eff_neutral(B, a, f):
         b, g, t = b_a(a, f), g_a(a, f), tau_a(a, f)
         return b - (b - g) * np.exp(-B / t)
 
+# 纯黑半透明 UI (L*=0) Eff.Alpha 曲线 (hdr_compensation_plan_v2.md 4.2, t_black_colorbg.csv 拟合)
+# 与中性色同模型形式, 不同参数: 黑色高背景下更易被淹没, 需更高 Eff.Alpha 匹配 SDR
+def g1_black(a):     # f=1 时的 g(a) (纯黑)
+    return 0.869 * np.power(a, 1.19)
+
+def b1_black(a):     # f=1 时的 b(a) (纯黑)
+    return 1.0 - 0.454 * np.power(1.0 - a, 1.66)
+
+def tau1_black(a):   # f=1 时的 τ(a) (纯黑)
+    return 195.0 * np.power(a / 0.5, -0.87)
+
+def g_a_black(a, f):      # 5.1: g(f,a) = a + (g1(a)-a)·f  (纯黑)
+    return a + (g1_black(a) - a) * f
+
+def b_a_black(a, f):      # 5.1: b(f,a) = a + (b1(a)-a)·f  (纯黑)
+    return a + (b1_black(a) - a) * f
+
+def tau_a_black(a, f):    # 5.1: τ(f,a) = τ0 + (τ1(a)-τ0)·f, τ0=500  (纯黑)
+    return 500.0 + (tau1_black(a) - 500.0) * f
+
+def eff_black(B, a, f):
+    with np.errstate(divide='ignore', invalid='ignore'):
+        b, g, t = b_a_black(a, f), g_a_black(a, f), tau_a_black(a, f)
+        return b - (b - g) * np.exp(-B / t)
+
 def delta_color(B, f):   # 5.1: Δ_f(B) = f·Δ1(B)
     return f * (-0.085 * np.exp(-B / 295.0) + 0.012)
 
@@ -186,7 +211,7 @@ def process(ui_alpha_png, ui_rgb_png, hdr_bin_path, outdir, f=1.0, fy=1.0):
     # 中性色/彩色判定: 逐像素 CIELAB C* (BT.709/D65), C*>5 视为彩色
     chroma = srgb_to_chroma(rgb)
     is_color = chroma > 5.0
-    black = (rgb.sum(axis=-1) == 0)   # 黑色像素 (rgb=0): 跳过 alpha 调节 (黑色曲线数据不足, 暂不调节)
+    black = (rgb.sum(axis=-1) == 0)   # 黑色像素 (rgb=0): 用纯黑曲线 eff_black (4.2)
 
     # ---- 步骤4: 逐像素调整 UI alpha -> Eff.Alpha (§4.2 模型 + §5.1 f 调节) ----
     #   输入: a=该像素初始 alpha, B=该像素所属 UI 的背景亮度, f=沉浸度滑块
@@ -201,7 +226,7 @@ def process(ui_alpha_png, ui_rgb_png, hdr_bin_path, outdir, f=1.0, fy=1.0):
     use_delta = is_color & (eff_with_delta <= 1.0)   # 彩色且不超 1 才加 Δ
     eff = np.where(use_delta, eff_with_delta, eff)
     eff = np.where(a >= 1.0, 1.0, eff)   # 初始 alpha=1.0 (完全不透明) 保持 1.0, 不经公式/彩色Δ 调成半透明
-    eff = np.where(black, a, eff)   # 黑色像素 (rgb=0) 跳过 alpha 调节: eff=初始alpha (黑色曲线待补数据后拟合)
+    eff = np.where(black & (a < 1.0), eff_black(B_map, a, f), eff)   # 黑色半透明 (rgb=0, a<1) 用纯黑曲线 (4.2); 不透明 (a>=1.0) 仍由上式保持 1.0
     eff = np.clip(eff, 0.0, 1.0)   # 下界 0: 低 a 彩色像素加 Δ 可能算出负
 
     # 输出 _uiAlpha.bin: 单通道 fp16, 每像素 Eff.Alpha [0,1]
