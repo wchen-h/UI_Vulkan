@@ -242,9 +242,13 @@ def process(ui_alpha_png, ui_rgb_png, hdr_bin_path, outdir, f=1.0, fy=1.0):
     #   ys 由 B 决定 (§4.3, 与颜色/a 无关); 初始 rgb 全 0 的黑色像素直接输出 0
     lin709 = srgb_to_linear(rgb) * PAPER_WHITE_NIT          # sRGB->linear, ×350 -> 线性nits BT.709
     lin2020 = lin709 @ BT709_TO_BT2020.T                     # BT.709->BT.2020 矩阵 -> 线性nits BT.2020
+    del lin709
     pq = linear_to_pq(lin2020)                              # 线性nits -> PQ code [0,1]
+    del lin2020
     rgb10 = pq * 1023.0                                     # -> 10-bit [0,1023] (PQ 域)
+    del pq
     Y, Cb, Cr = rgb_to_ycbcr2020(rgb10[..., 0], rgb10[..., 1], rgb10[..., 2])  # RGB->YCbCr (PQ 域, 10-bit full range)
+    del rgb10
     ys = yscale(B_map, fy)                                  # Y-Scale (§4.3, 仅依赖 B)
     Y = np.clip(Y * ys, 0.0, 1023.0)                        # 只缩放 Y, Cb/Cr 保持
     Cb = np.clip(Cb, 0.0, 1023.0)
@@ -269,7 +273,9 @@ def process(ui_alpha_png, ui_rgb_png, hdr_bin_path, outdir, f=1.0, fy=1.0):
         ])
     inv_ratio = calculate_inv_ratio(systemTMOCurve, pq_out)            # (H,W) 每像素 inverse ratio
     new_lin = pq_decode(pq_out) * inv_ratio[..., None]                # 三通道线性 ×ratio (保色相)
+    del inv_ratio
     pq_out = linear_to_pq(np.clip(new_lin, 0.0, PQ_MAX_NIT))
+    del new_lin
     pq_out[black] = 0.0                                               # 黑色像素保持 0
 
     rgb_packed = pack_a2b10g10r10(pq_out[..., 0] * 1023.0,
@@ -333,8 +339,10 @@ def main():
                          f"请先运行 task0 旋转: python3 scripts/rotate_hdr.py")
     print(f"UI: alpha={ui_alpha} rgb={ui_rgb} f={f} fy={fy}")
     print(f"HDR bins: {len(hdr_files)}")
+    import gc
     for h in hdr_files:
         process(ui_alpha, ui_rgb, h, outdir, f, fy)
+        gc.collect()
     print("Done.")
 
 
