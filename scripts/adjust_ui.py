@@ -226,9 +226,19 @@ def process(ui_alpha_png, ui_rgb_png, hdr_bin_path, outdir, f=1.0, fy=1.0):
     use_delta = is_color & (eff_with_delta <= 1.0)   # 彩色且不超 1 才加 Δ
     eff = np.where(use_delta, eff_with_delta, eff)
     eff = np.where(a >= 1.0, 1.0, eff)   # 初始 alpha=1.0 (完全不透明) 保持 1.0, 不经公式/彩色Δ 调成半透明
-    bk = black & (a < 1.0)   # 黑色半透 (rgb=0, a<1) 用纯黑曲线 (4.2); 不透明 a>=1.0 仍由上式保持 1.0
+    bk = black & (a < 1.0)   # 黑色半透 (rgb=0, a<1)
     if bk.any():
-        eff[bk] = eff_black(B_map[bk], a[bk], f)   # 仅对黑色半透子集计算 (省内存, 不算全帧)
+        # 游戏实际用 sRGB 域 alpha blending (非 linear 域), 同一 alpha 下 sRGB blend 比 linear blend 更不透明。
+        # 曲线是 linear 域标定的, 需把 sRGB 域 alpha 映射到 linear 域等效 alpha 再喂曲线。
+        # 映射表 (纯黑半透 UI, SDR 窗口经验观察):
+        #   sRGB blend alpha: 0.1  0.2  0.3  0.4  0.5  0.6
+        #   linear blend 等效: 0.2  0.4  0.6  0.7  0.8  0.9
+        # sRGB alpha >= 0.6 时 linear 等效 >= 0.9 (接近上限), 暂不处理 (clip 到 0.9)。
+        srgb_pts  = np.array([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6])
+        linear_pts = np.array([0.0, 0.2, 0.4, 0.6, 0.7, 0.8, 0.9])
+        a_bk = a[bk]
+        a_lin = np.clip(np.interp(a_bk, srgb_pts, linear_pts), 0.0, 0.9)
+        eff[bk] = eff_black(B_map[bk], a_lin, f)   # 用 linear 等效 alpha 喂曲线
     eff = np.clip(eff, 0.0, 1.0)   # 下界 0: 低 a 彩色像素加 Δ 可能算出负
 
     # 输出 _uiAlpha.bin: 单通道 fp16, 每像素 Eff.Alpha [0,1]
