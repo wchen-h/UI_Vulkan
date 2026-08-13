@@ -211,7 +211,7 @@ def process(ui_alpha_png, ui_rgb_png, hdr_bin_path, outdir, f=1.0, fy=1.0):
     # 中性色/彩色判定: 逐像素 CIELAB C* (BT.709/D65), C*>5 视为彩色
     chroma = srgb_to_chroma(rgb)
     is_color = chroma > 5.0
-    black = (rgb.sum(axis=-1) == 0)   # 黑色像素 (rgb=0): 用纯黑曲线 eff_black (4.2)
+    black = (rgb.max(axis=-1) < 0.05)   # 黑色像素 (rgb 各通道 < 0.05 ≈ 13/255): 用纯黑曲线 eff_black; 涵盖提取产生的极暗灰 (如 3/255)
 
     # ---- 步骤4: 逐像素调整 UI alpha -> Eff.Alpha (§4.2 模型 + §5.1 f 调节) ----
     #   输入: a=该像素初始 alpha, B=该像素所属 UI 的背景亮度, f=沉浸度滑块
