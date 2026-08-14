@@ -21,8 +21,12 @@
     "outdir": "<任务2 输出目录: _withUI.bin; CLI --outdir>"
   },
   "task3": {
+    "mode": "<可选, hdr 或 sdr; CLI --mode; 默认 hdr>",
+    "blended_dir": "<可选, HDR 模式 bin 目录, 默认 task2.outdir; CLI --blended-dir>",
+    "sdr_dir": "<可选, SDR 模式 bin 目录; CLI --sdr-dir>",
     "video_out": "<输出 MP4 路径 (HDR); CLI --video-out>",
     "sdr_video_out": "<可选, SDR 输出 MP4 路径; CLI --sdr-video-out>",
+    "fps": "<可选, MP4 帧率; CLI --fps; 默认 30>",
     "encoder_script": "<ffmpeg_venc 可执行文件路径 (带 -vmeta_url)>"
   }
 }

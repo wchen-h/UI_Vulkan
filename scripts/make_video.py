@@ -9,8 +9,9 @@
 bin 格式 (HDR/SDR 相同): A2B10G10R10 UNORM 小端 uint32; HDR 为 PQ+BT.2020, SDR 为 sRGB+BT.709。
 分辨率从 config.json 的 common.width/height 读取 (默认 2328×1080)。
 用法:
-    python3 make_video.py [--mode hdr|sdr] [--config config.json] [--blended-dir X]
-                           [--video-out Y] [--sdr-video-out S] [--keep-temp]
+    python3 make_video.py [--mode hdr|sdr] [--config config.json]
+                           [--blended-dir X] [--sdr-dir S] [--video-out Y] [--sdr-video-out S]
+                           [--fps N] [--keep-temp]
 """
 import argparse
 import os
@@ -66,42 +67,55 @@ def concat_bins(bins, out_path, frame_bytes):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--config', default=CONFIG_PATH, help='config.json 路径')
-    ap.add_argument('--mode', choices=['hdr', 'sdr'], default='hdr',
-                    help='合成模式: hdr (HDR10 BT.2020+PQ, 默认) / sdr (BT.709+sRGB)')
-    ap.add_argument('--blended-dir', default=None, help='覆盖混合 bin 目录 (默认 config.task2.outdir)')
+    ap.add_argument('--mode', choices=['hdr', 'sdr'], default=None,
+                    help='合成模式: hdr (HDR10 BT.2020+PQ) / sdr (BT.709+sRGB); 不指定时用 config.task3.mode')
+    ap.add_argument('--blended-dir', default=None, help='HDR 模式: 覆盖混合 bin 目录 (默认 config.task2.outdir)')
+    ap.add_argument('--sdr-dir', default=None, help='SDR 模式: SDR bin 目录 (默认 config.task3.sdr_dir)')
     ap.add_argument('--video-out', default=None, help='覆盖 config.task3.video_out (HDR 输出)')
     ap.add_argument('--sdr-video-out', default=None, help='SDR 视频输出路径 (mode=sdr 时; 或 config.task3.sdr_video_out)')
+    ap.add_argument('--fps', default=None, type=int, help='MP4 帧率 (默认 config.task3.fps 或 30)')
     ap.add_argument('--keep-temp', action='store_true', help='保留中间 raw/yuv 文件')
     args = ap.parse_args()
 
     cfg = load_config(args.config)
     common.set_dims(cfg['common']['height'], cfg['common']['width'])
 
-    # 混合 bin 目录: 默认 task2.outdir (可被 --blended-dir 覆盖)
-    if args.blended_dir:
-        blended_dir = resolve_path(args.blended_dir)
-    elif path_filled(cfg['task2']['outdir']):
-        blended_dir = resolve_path(cfg['task2']['outdir'])
-    else:
-        raise SystemExit("config.task2.outdir 未设置 (make_video 默认从此读 _withUI.bin; 或用 --blended-dir 覆盖)")
-    if not os.path.isdir(blended_dir):
-        raise SystemExit(f"混合 bin 目录不存在: {blended_dir}")
+    # 模式: CLI > config.task3.mode > 默认 hdr
+    mode = args.mode or cfg.get('task3', {}).get('mode', 'hdr')
+    is_sdr = (mode == 'sdr')
+    print(f"mode: {'SDR (BT.709+sRGB)' if is_sdr else 'HDR (BT.2020+PQ)'}")
 
-    # 必填: HDR 输出 MP4
-    if not path_filled(cfg['task3']['video_out']) and not args.video_out:
-        raise SystemExit("config.task3.video_out 未设置")
-    video_out = args.video_out or resolve_path(cfg['task3']['video_out'])
-
-    # SDR 输出路径: --sdr-video-out 或 config.task3.sdr_video_out (mode=sdr 时必填)
-    sdr_video_out_cfg = cfg['task3'].get('sdr_video_out', '')
-    if args.sdr_video_out:
-        sdr_video_out = resolve_path(args.sdr_video_out)
-    elif path_filled(sdr_video_out_cfg):
-        sdr_video_out = resolve_path(sdr_video_out_cfg)
+    # 输入 bin 目录
+    if is_sdr:
+        # SDR 模式: 从 sdr_dir 读 SDR bin
+        sdr_dir_cfg = cfg.get('task3', {}).get('sdr_dir', '')
+        if args.sdr_dir:
+            bin_dir = resolve_path(args.sdr_dir)
+        elif path_filled(sdr_dir_cfg):
+            bin_dir = resolve_path(sdr_dir_cfg)
+        else:
+            raise SystemExit("SDR 模式需指定 bin 目录: --sdr-dir 或 config.task3.sdr_dir")
     else:
-        sdr_video_out = None
-    if args.mode == 'sdr' and not sdr_video_out:
-        raise SystemExit("SDR 模式需指定输出路径: --sdr-video-out 或 config.task3.sdr_video_out")
+        # HDR 模式: 从 blended_dir 读 (默认 task2.outdir)
+        if args.blended_dir:
+            bin_dir = resolve_path(args.blended_dir)
+        elif path_filled(cfg['task2']['outdir']):
+            bin_dir = resolve_path(cfg['task2']['outdir'])
+        else:
+            raise SystemExit("HDR 模式需指定 bin 目录: --blended-dir 或 config.task2.outdir")
+    if not os.path.isdir(bin_dir):
+        raise SystemExit(f"bin 目录不存在: {bin_dir}")
+
+    # 输出路径
+    if is_sdr:
+        sdr_video_out_cfg = cfg.get('task3', {}).get('sdr_video_out', '')
+        out_video = args.sdr_video_out or (resolve_path(sdr_video_out_cfg) if path_filled(sdr_video_out_cfg) else None)
+        if not out_video:
+            raise SystemExit("SDR 模式需指定输出路径: --sdr-video-out 或 config.task3.sdr_video_out")
+    else:
+        if not path_filled(cfg['task3']['video_out']) and not args.video_out:
+            raise SystemExit("config.task3.video_out 未设置")
+        out_video = args.video_out or resolve_path(cfg['task3']['video_out'])
 
     # 必填: ffmpeg_venc
     if not path_filled(cfg['task3']['encoder_script']):
@@ -110,31 +124,30 @@ def main():
     if not os.path.isfile(ffmpeg):
         raise SystemExit(f"ffmpeg_venc 未找到: {ffmpeg} (config.task3.encoder_script)")
 
-    W, H = common.W_IMG, common.H_IMG   # 从 config 读取
-    fps, bitrate = 30, "10M"
+    W, H = common.W_IMG, common.H_IMG
+    fps = args.fps or int(cfg.get('task3', {}).get('fps', 30))
+    bitrate = "10M"
     frame_bytes = W * H * 4
 
-    # 收集最终帧: 优先 _withUI.bin (经 task2); 无 _withUI 对应的 _rotate.bin
-    #   (采集时已含 UI, 跳过 task1/2, 仅 task0 旋转) 也算最终
-    final = {}   # stem -> path
-    for fn in os.listdir(blended_dir):
+    # 收集最终帧
+    final = {}
+    for fn in os.listdir(bin_dir):
         if not fn.endswith('.bin'):
             continue
         if fn.endswith('_withUI.bin'):
             stem = fn[:-len('_withUI.bin')]
-            final[stem] = os.path.join(blended_dir, fn)   # withUI 优先 (覆盖同名 _rotate)
+            final[stem] = os.path.join(bin_dir, fn)
         elif fn.endswith('_rotate.bin'):
             stem = fn[:-len('.bin')]
-            final.setdefault(stem, os.path.join(blended_dir, fn))   # 仅当无 withUI 时采用
+            final.setdefault(stem, os.path.join(bin_dir, fn))
+        else:
+            stem = fn[:-len('.bin')]
+            final.setdefault(stem, os.path.join(bin_dir, fn))
     bins = sorted(final.values(), key=natural_key)
     n = len(bins)
     if n == 0:
-        raise SystemExit(f"{blended_dir} 下没有最终帧 (*_withUI.bin 或 *_rotate.bin)")
+        raise SystemExit(f"{bin_dir} 下没有 .bin 文件")
     print(f"frames: {n}, resolution: {W}x{H}, fps={fps}, bitrate={bitrate}")
-
-    is_sdr = (args.mode == 'sdr')
-    out_video = sdr_video_out if is_sdr else video_out
-    print(f"mode: {'SDR (BT.709+sRGB)' if is_sdr else 'HDR (BT.2020+PQ)'}")
 
     out_dir = os.path.dirname(os.path.abspath(out_video))
     os.makedirs(out_dir, exist_ok=True)
