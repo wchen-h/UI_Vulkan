@@ -98,8 +98,8 @@ void main() {
 
     // 1. Sample background (sRGB -> linear BT.709, only in local region)
     vec3 bgRGB   = texture(texBG, fragUV).rgb;
-    vec3 bgNit   = BT709_TO_BT2020 * (bgRGB * PAPER_WHITE_NIT);
-    bgNit = bgNit * fpc.bgMultiplier;
+    vec3 bgNit_raw    = BT709_TO_BT2020 * (bgRGB * PAPER_WHITE_NIT);  // raw, no multiplier
+    vec3 bgNit_scaled = bgNit_raw * fpc.bgMultiplier;                  // adjusted by BG Nit slider
 
     // 2. Compute UI UV from full-screen UV
     vec2 uiUV = (fragUV - fpc.uiOffset) / fpc.uiScale;
@@ -107,8 +107,8 @@ void main() {
                      uiUV.y >= 0.0 && uiUV.y <= 1.0);
 
     if (!insideUI) {
-        // Inside local but outside UI: just show scaled background
-        outColor = vec4(linearToPQ(bgNit), 1.0);
+        // Inside local but outside UI: show scaled background
+        outColor = vec4(linearToPQ(bgNit_scaled), 1.0);
         return;
     }
 
@@ -122,14 +122,19 @@ void main() {
 
     // 5. Non-separated: mix UI with bg FIRST (linear nits domain)
     //    Then apply Y-Scale on the MIXED result (not UI alone).
+    //
+    //    IMPORTANT: UI-covered pixels (alpha != 0) use RAW bg (no bgMultiplier).
+    //    BG Nit slider only affects non-UI background. UI area brightness
+    //    is controlled solely by Y-Scale. This lets the operator independently
+    //    set B (via BG Nit) and adjust Y-Scale without interference.
     if (texAlpha > 0.0) {
         // Compute alpha for mixing (fg/bg distinction by texAlpha threshold)
         float sliderAlpha = (texAlpha > 0.5) ? fpc.fgAlpha : fpc.bgAlpha;
         float alpha = clamp(texAlpha * min(sliderAlpha, 1.0)
                           + max(0.0, sliderAlpha - 1.0), 0.0, 1.0);
 
-        // Mix in linear nits domain
-        vec3 mixedNit = uiNit2020 * alpha + bgNit * (1.0 - alpha);
+        // Mix in linear nits domain (raw bg, NOT bgMultiplier-adjusted)
+        vec3 mixedNit = uiNit2020 * alpha + bgNit_raw * (1.0 - alpha);
 
         // 6. PQ encode mixed -> 10-bit -> YCbCr
         vec3 pq_mixed = linearToPQ(mixedNit);
@@ -148,7 +153,7 @@ void main() {
         vec3 rgb10_adj = ycbcr2rgb(ycbcr);
         outColor = vec4(rgb10_adj / 1023.0, 1.0);
     } else {
-        // texAlpha == 0: no UI contribution, output bg directly (no Y-Scale)
-        outColor = vec4(linearToPQ(bgNit), 1.0);
+        // texAlpha == 0: no UI, show scaled background (BG Nit controlled)
+        outColor = vec4(linearToPQ(bgNit_scaled), 1.0);
     }
 }
