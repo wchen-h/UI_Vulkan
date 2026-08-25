@@ -1,8 +1,10 @@
-// HDR merged shader: UI adjustment (BT.2020 PQ YCbCr) + then mix with BG texture
-// Only draws background within local region (2× UI quad linear = 4× area).
+// HDR merged shader (mixed_ui_test): mix UI+BG FIRST, then Y-Scale on mixed result.
+// Non-separated approach: Y-Scale applied after mixing, not before.
+// Only draws background within local region (2x UI quad linear = 4x area).
 // Outside local region: black.
 // Foreground UI (texAlpha > 0.5) and Background UI (texAlpha <= 0.5) use separate
-// Eff.Alpha and Y-Scale controls.
+// Alpha and Y-Scale controls. Y-Scale is applied to the MIXED result (not UI alone).
+// CbCr-Scale is kept for future use (currently applied to mixed Cb/Cr).
 
 #version 450
 
@@ -12,14 +14,14 @@ layout(binding = 2) uniform sampler2D texBG;     // background image (sRGB -> li
 
 layout(push_constant) uniform FragPush {
     // bytes 0-15: vertex (offset + scale) — full-screen: offset=(0,0), scale=(2,2)
-    layout(offset = 16) float fgAlpha;        // foreground Eff.Alpha
+    layout(offset = 16) float fgAlpha;        // foreground alpha (mix alpha, not eff)
     layout(offset = 20) float bgMultiplier;    // background brightness multiplier
-    layout(offset = 24) float fgYScale;       // foreground Y scale factor
-    layout(offset = 28) float cbcrScale;      // CbCr scale factor (shared)
+    layout(offset = 24) float fgYScale;       // foreground Y-Scale (applied to MIXED result)
+    layout(offset = 28) float cbcrScale;      // CbCr scale factor (shared, on mixed result)
     layout(offset = 32) vec2  uiOffset;        // UI area bottom-left in screen UV [0,1]
     layout(offset = 40) vec2  uiScale;         // UI area size in screen UV [0,1]
-    layout(offset = 48) float bgAlpha;        // background Eff.Alpha
-    layout(offset = 52) float bgYScale;       // background Y scale factor
+    layout(offset = 48) float bgAlpha;        // background alpha (mix alpha, not eff)
+    layout(offset = 52) float bgYScale;       // background Y-Scale (applied to MIXED result)
 } fpc;
 
 layout(location = 0) in vec2 fragUV;
@@ -114,46 +116,39 @@ void main() {
     vec3  uiRGB    = texture(texRGB, uiUV).rgb;
     float texAlpha = texture(texAlpha, uiUV).r;
 
-    // 4-5. UI -> BT.2020 nit (NO mixing with BG yet)
+    // 4. UI -> BT.2020 nit
     vec3 uiNit709  = uiRGB * PAPER_WHITE_NIT;
     vec3 uiNit2020 = BT709_TO_BT2020 * uiNit709;
 
-    // 6-7. PQ encode UI only -> 10-bit
-    vec3 pq    = linearToPQ(uiNit2020);
-    vec3 rgb10 = pq * 1023.0;
-
-    // 8-9. YCbCr + adjustment (UI only, BG not involved)
-    //      Foreground (texAlpha > 0.5) and Background (texAlpha <= 0.5)
-    //      use separate Y-Scale; CbCr-Scale is shared.
-    vec3 ycbcr = rgb2ycbcr(rgb10);
-    float yScale = 1.0;
-    float effAlpha = 0.0;
+    // 5. Non-separated: mix UI with bg FIRST (linear nits domain)
+    //    Then apply Y-Scale on the MIXED result (not UI alone).
     if (texAlpha > 0.0) {
-        float sliderAlpha;
-        if (texAlpha > 0.5) {
-            sliderAlpha = fpc.fgAlpha;
-            yScale = fpc.fgYScale;
-        } else {
-            sliderAlpha = fpc.bgAlpha;
-            yScale = fpc.bgYScale;
-        }
-        effAlpha = clamp(texAlpha * min(sliderAlpha, 1.0) + max(0.0, sliderAlpha - 1.0), 0.0, 1.0);
+        // Compute alpha for mixing (fg/bg distinction by texAlpha threshold)
+        float sliderAlpha = (texAlpha > 0.5) ? fpc.fgAlpha : fpc.bgAlpha;
+        float alpha = clamp(texAlpha * min(sliderAlpha, 1.0)
+                          + max(0.0, sliderAlpha - 1.0), 0.0, 1.0);
+
+        // Mix in linear nits domain
+        vec3 mixedNit = uiNit2020 * alpha + bgNit * (1.0 - alpha);
+
+        // 6. PQ encode mixed -> 10-bit -> YCbCr
+        vec3 pq_mixed = linearToPQ(mixedNit);
+        vec3 rgb10    = pq_mixed * 1023.0;
+        vec3 ycbcr    = rgb2ycbcr(rgb10);
+
+        // 7. Y x Y-Scale (on MIXED result, not UI alone)
+        float yScale = (texAlpha > 0.5) ? fpc.fgYScale : fpc.bgYScale;
         ycbcr.x = ycbcr.x * yScale;
+        // CbCr-Scale (kept for future use, currently on mixed Cb/Cr)
         ycbcr.y = 512.0 + (ycbcr.y - 512.0) * fpc.cbcrScale;
         ycbcr.z = 512.0 + (ycbcr.z - 512.0) * fpc.cbcrScale;
+
+        // 8. Clamp + YCbCr -> RGB + /1023 -> PQ output
+        ycbcr = clamp(ycbcr, vec3(0.0), vec3(1023.0));
+        vec3 rgb10_adj = ycbcr2rgb(ycbcr);
+        outColor = vec4(rgb10_adj / 1023.0, 1.0);
+    } else {
+        // texAlpha == 0: no UI contribution, output bg directly (no Y-Scale)
+        outColor = vec4(linearToPQ(bgNit), 1.0);
     }
-
-    // 10-12. Clamp + YCbCr->RGB + /1023 -> PQ
-    ycbcr = clamp(ycbcr, vec3(0.0), vec3(1023.0));
-    vec3 rgb10_adj = ycbcr2rgb(ycbcr);
-    vec3 pq_adj = rgb10_adj / 1023.0;
-
-    // 13. PQ decode -> linear nit (adjusted UI, BG not touched)
-    vec3 uiAdjNit = pqDecode(pq_adj);
-
-    // 14. Mix with BG in LINEAR domain
-    vec3 mixed = uiAdjNit * effAlpha + bgNit * (1.0 - effAlpha);
-
-    // 15. PQ encode -> output
-    outColor = vec4(linearToPQ(mixed), 1.0);
 }
