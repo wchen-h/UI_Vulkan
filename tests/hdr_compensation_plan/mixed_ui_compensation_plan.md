@@ -666,45 +666,77 @@ T4 (alpha回归) ─────────┘                      │
 
 ### 9.2 T1: 半透明UI直接调节曲线测试
 
-**目标**：确定基础方案（Y-boost）中半透明 UI 的亮度调节曲线，以及是否需要补充色度调节。不透明 UI 直接复用现有基于 UI/画面分离的调节曲线（eff_neutral / eff_black + Y-Scale）。
+**目标**：用 Vulkan 双窗口测试工具，对 UI 和背景混合后的结果施加 Y-Scale 亮度调节，采集匹配数据，拟合非分离方案下的 Y-Scale 曲线。同时判断是否需要补充色度 (Cb/Cr) 调节。
 
-**核心问题**：Y-boost 将 Y-Scale + 逆色调映射施加于整个 UI 区域（含半透明像素的混合值）。对不透明 UI（M=ui）等价于现有 pipeline；对半透明 UI（M=ui·α+bg·(1-α)），调节同时影响 UI 和 bg 贡献，是否足够？
+**已实现内容**（`mixed_ui_test` 分支，commit e75f07b）：
 
-**输入**：
-- SDR 混合 bin (lkwg 5帧)
-- bbox (从 alpha.png 提取)
-- alpha.png (ground truth, 用于划分不透明/半透明像素)
-- 现有 pipeline 输出 (ground truth HDR)
+| 文件 | 改动 |
+|------|------|
+| `shaders/hdr_ui.frag` | 顺序从"先调 UI 再混合"改为"先混合再调混合结果"；alpha 为 plain `texAlpha*sliderAlpha`；BG Nit 不影响 UI 区（raw bg）；支持 linear/sRGB 域混合切换；Y-Scale 统一；CbCr-Scale 保留 |
+| `src/hdr_app.h` | `bgYScale_` → `blendingMode_` (0=linear, 1=sRGB) |
+| `src/hdr_app.cpp` | 去掉 BG Y-Scale 滑条；加 Linear/sRGB Blend radio button；alpha 滑条范围 [0,1.0]；Y-Scale 统一为单个滑条 |
+| `shaders/sdr_ui.frag` | 不改（父分支已有 blending toggle，作为参考） |
+| `src/sdr_app.cpp/h` | 不改（父分支已有 radio button） |
+
+**shader 流程对比**：
+
+```
+之前 (chromaScale_YUV_GameBG, UI分离):
+  UI -> PQ -> YCbCr -> Y*Y-Scale -> RGB -> PQ decode -> adjusted UI nits
+  -> mix: mixed = adjustedUI * effAlpha + bg * (1-effAlpha)
+  -> PQ encode -> output
+
+现在 (mixed_ui_test, UI不分离):
+  UI + bg -> mix FIRST: mixed = uiNit * alpha + bgNit_raw * (1-alpha)
+  -> PQ encode -> YCbCr -> Y * Y-Scale -> RGB -> PQ output
+  (sRGB blend: 在 BT.709 域做 sRGB encode -> blend -> decode, 再转 BT.2020)
+```
+
+**测试方法**：
+
+1. SDR 窗口选 Linear Blend 或 sRGB Blend（参考画面）
+2. HDR 窗口选相同的 Blend 模式
+3. 设 BG Nit 到目标 B 值（仅影响非 UI 背景区域）
+4. 设 FG/BG Alpha 滑条到测试 alpha 值（如 0.1, 0.2, ..., 0.9）
+5. 调 Y-Scale 滑条直到 HDR 窗口与 SDR 窗口主观一致
+6. 记录 (alpha, B, Y-Scale) 数据点
+7. 遍历所有 (alpha, B) 组合后拟合 Y-Scale = f(B, alpha) 曲线
+8. 可选：调 CbCr-Scale 观察色彩偏差，决定是否需要色度调节
+
+**测试矩阵**：
+
+| 维度 | 取值 | 数量 |
+|------|------|------|
+| alpha | 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9 | 9 |
+| B (nit) | 0, 30, 60, 100, 150, 200, 300, 500, 1000 | 9 |
+| blend mode | linear, sRGB | 2 |
+| **配对数** | | 162 |
 
 **步骤**：
 
 | # | 步骤 | 状态 |
 |---|------|------|
-| T1-1 | 在 common.py 新增 read_sdr_bin, linear_to_srgb, hdr_nits_to_srgb 等基础函数 | [ ] |
-| T1-2 | 编写 test_direct_adjust.py：读 SDR 混合 bin → SDR→linear nits → 时域分类（简版：直接用 alpha.png 划分不透明/半透明）→ Y-boost on UI 区域 → PQ encode 输出 | [ ] |
-| T1-3 | 运行生成 5 帧 HDR bin | [ ] |
-| T1-4 | 评估：不透明 UI 区域 Y 差 vs ground truth（预期 < 5 nit，验证等价性） | [ ] |
-| T1-5 | 评估：半透明 UI 区域 Y 差 vs ground truth（量化 Y-boost 不足程度） | [ ] |
-| T1-6 | 分析：半透明区域 Y 差的分布——是系统性偏差还是随机偏差？偏差方向（偏亮/偏暗）？ | [ ] |
-| T1-7 | 如不足：测试替代 Y-Scale 曲线（如基于混合像素值的自适应 Y-Scale，或分段 Y-Scale） | [ ] |
-| T1-8 | 测试色度：Y-boost 后 Cb/Cr vs ground truth 的偏差，判断是否需要补充色度调节 | [ ] |
-| T1-9 | 确定最终直接调节参数 + 色度决策 | [ ] |
+| T1-1 | shader + app 代码实现（mixed_ui_test 分支） | [x] |
+| T1-2 | 编译验证（build.sh，shader 编译通过） | [ ] |
+| T1-3 | 采集 linear blend 模式数据（9 alpha × 9 B = 81 对） | [ ] |
+| T1-4 | 采集 sRGB blend 模式数据（81 对） | [ ] |
+| T1-5 | 拟合 Y-Scale = f(B, alpha) 曲线（linear blend） | [ ] |
+| T1-6 | 拟合 Y-Scale = f(B, alpha) 曲线（sRGB blend） | [ ] |
+| T1-7 | 对比两条曲线，评估混合域对 Y-Scale 的影响 | [ ] |
+| T1-8 | 测试 CbCr-Scale：固定 Y-Scale，调 CbCr-Scale 观察色彩偏差 | [ ] |
+| T1-9 | 色度决策：是否需要 CbCr 调节 + 偏差量化 | [ ] |
+| T1-10 | 确定最终直接调节参数（Y-Scale 曲线 + 色度决策） | [ ] |
 
-**产出**：直接调节方案中半透明 UI 的 Y-Scale 参数 + 是否需要色度调节
+**产出**：非分离方案下 Y-Scale = f(B, alpha) 曲线（linear + sRGB 各一条）+ 是否需要色度调节
 
 **验证标准**：
 
 | 指标 | 合格标准 |
 |------|---------|
-| 不透明 UI 区域 Y 差 | < 5 nit (验证与现有 pipeline 等价) |
-| 半透明 UI 区域 Y 差 | < 30 nit (基础方案阈值) |
-| bbox 外 Y 差 | < 5 nit (验证不污染背景) |
-| 色度决策 | 有明确结论（需要/不需要 + 偏差量化） |
-
-**决策分支**：
-- 若半透明 Y 差 < 15 nit → 基础方案已足够，T1-7/T1-8 可简化
-- 若半透明 Y 差 15-30 nit → 记录偏差特征，进阶方案需针对性补偿
-- 若半透明 Y 差 > 30 nit → 基础方案对半透明 UI 不可用，进阶方案必须
+| Y-Scale 曲线拟合 R² | > 0.95 |
+| linear vs sRGB 曲线差异 | 量化（若差异 < 5% 可合并为一条） |
+| 色度决策 | 有明确结论（需要/不需要 + CbCr 偏差量） |
+| 主观验证 | 操作员确认 HDR 匹配 SDR 的 Y-Scale 数据一致性 |
 
 ---
 
