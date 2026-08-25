@@ -29,8 +29,8 @@ private:
     float fgAlpha_   = 1.0f;
     float bgAlpha_   = 1.0f;
     float fgYScale_  = 1.0f;
-    float bgYScale_  = 1.0f;
     float cbcrScale_ = 1.0f;
+    int   blendingMode_ = 0;  // 0=linear alpha blend, 1=sRGB alpha blend
     float avgMixedNit_ = 0.0f;
     std::vector<UITexture> bgTextures_;
     std::vector<std::vector<uint8_t>> bgRawList_;

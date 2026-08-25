@@ -260,11 +260,13 @@ void HDRApp::hdrImGui() {
     ImGui::Separator();
     ImGui::Text("Foreground UI (alpha > 0.5)");
     ImGui::SliderFloat("FG Alpha", &fgAlpha_, 0.0f, 2.0f);
-    ImGui::DragFloat("FG Y-Scale (mixed)", &fgYScale_, 0.01f, 0.0f, 10.0f, "%.3f");
+    ImGui::DragFloat("Y-Scale (mixed)", &fgYScale_, 0.01f, 0.0f, 10.0f, "%.3f");
     ImGui::Separator();
     ImGui::Text("Background UI (alpha <= 0.5)");
     ImGui::SliderFloat("BG Alpha", &bgAlpha_, 0.0f, 2.0f);
-    ImGui::DragFloat("BG Y-Scale (mixed)", &bgYScale_, 0.01f, 0.0f, 10.0f, "%.3f");
+    ImGui::Separator();
+    ImGui::RadioButton("Linear Blend", &blendingMode_, 0); ImGui::SameLine();
+    ImGui::RadioButton("sRGB Blend", &blendingMode_, 1);
     ImGui::Separator();
     ImGui::DragFloat("CbCr-Scale (mixed)", &cbcrScale_, 0.001f, 0.0f, 3.0f, "%.3f");
     ImGui::PopItemWidth();
@@ -465,7 +467,7 @@ void HDRApp::drawFrame() {
     // HDR: compute bg multiplier from slider value and avg nit
     float bgMultiplier = localAvgNit_ > 0.0f ? (float)bgNit_ / localAvgNit_ : 0.0f;
     recordUIPass(wc, cmd, imageIdx, uiPairs_, currentUI_, quadVB_, bgMultiplier,
-                 fgAlpha_, bgAlpha_, fgYScale_, bgYScale_, cbcrScale_);
+                 fgAlpha_, bgAlpha_, fgYScale_, (float)blendingMode_, cbcrScale_);
 
     // Copy linear intermediate to readback buffer for average luminance computation
     if (readbackBuf_ != VK_NULL_HANDLE) {

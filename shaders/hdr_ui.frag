@@ -21,7 +21,7 @@ layout(push_constant) uniform FragPush {
     layout(offset = 32) vec2  uiOffset;        // UI area bottom-left in screen UV [0,1]
     layout(offset = 40) vec2  uiScale;         // UI area size in screen UV [0,1]
     layout(offset = 48) float bgAlpha;        // background alpha (mix alpha, not eff)
-    layout(offset = 52) float bgYScale;       // background Y-Scale (applied to MIXED result)
+    layout(offset = 52) float blendingMode;   // 0=linear blend, 1=sRGB blend
 } fpc;
 
 layout(location = 0) in vec2 fragUV;
@@ -83,6 +83,21 @@ vec3 ycbcr2rgb(vec3 ycbcr) {
     return vec3(R, G, B);
 }
 
+// sRGB transfer functions (IEC 61966-2-1) — for sRGB-domain alpha blending
+vec3 linearToSRGB(vec3 c) {
+    bvec3 mask = lessThanEqual(c, vec3(0.0031308));
+    vec3 lo = c * 12.92;
+    vec3 hi = pow(max(c, vec3(0.0)), vec3(1.0 / 2.4)) * 1.055 - 0.055;
+    return mix(hi, lo, mask);
+}
+
+vec3 sRGBToLinear(vec3 c) {
+    bvec3 mask = lessThanEqual(c, vec3(0.04045));
+    vec3 lo = c / 12.92;
+    vec3 hi = pow((c + 0.055) / 1.055, vec3(2.4));
+    return mix(hi, lo, mask);
+}
+
 void main() {
     // Local region = 2× UI quad linear (4× area), centered, clamped to [0,1]
     vec2 localMin = max(vec2(0.5) - fpc.uiScale, vec2(0.0));
@@ -133,16 +148,29 @@ void main() {
         float alpha = clamp(texAlpha * min(sliderAlpha, 1.0)
                           + max(0.0, sliderAlpha - 1.0), 0.0, 1.0);
 
-        // Mix in linear nits domain (raw bg, NOT bgMultiplier-adjusted)
-        vec3 mixedNit = uiNit2020 * alpha + bgNit_raw * (1.0 - alpha);
+        // Mix UI with bg (raw, no bgMultiplier) in linear nits domain
+        vec3 mixedNit;
+        if (fpc.blendingMode > 0.5) {
+            // sRGB domain blending: normalize to [0,1], sRGB encode, blend, decode, back to nits
+            vec3 ui_norm  = clamp(uiNit2020  / PAPER_WHITE_NIT, vec3(0.0), vec3(1.0));
+            vec3 bg_norm  = clamp(bgNit_raw  / PAPER_WHITE_NIT, vec3(0.0), vec3(1.0));
+            vec3 ui_srgb  = linearToSRGB(ui_norm);
+            vec3 bg_srgb  = linearToSRGB(bg_norm);
+            vec3 mixed_srgb = ui_srgb * alpha + bg_srgb * (1.0 - alpha);
+            vec3 mixed_norm = sRGBToLinear(mixed_srgb);
+            mixedNit = mixed_norm * PAPER_WHITE_NIT;
+        } else {
+            // Linear domain blending (default)
+            mixedNit = uiNit2020 * alpha + bgNit_raw * (1.0 - alpha);
+        }
 
         // 6. PQ encode mixed -> 10-bit -> YCbCr
         vec3 pq_mixed = linearToPQ(mixedNit);
         vec3 rgb10    = pq_mixed * 1023.0;
         vec3 ycbcr    = rgb2ycbcr(rgb10);
 
-        // 7. Y x Y-Scale (on MIXED result, not UI alone)
-        float yScale = (texAlpha > 0.5) ? fpc.fgYScale : fpc.bgYScale;
+        // 7. Y x Y-Scale (on MIXED result, unified fgYScale for all UI pixels)
+        float yScale = fpc.fgYScale;
         ycbcr.x = ycbcr.x * yScale;
         // CbCr-Scale (kept for future use, currently on mixed Cb/Cr)
         ycbcr.y = 512.0 + (ycbcr.y - 512.0) * fpc.cbcrScale;
