@@ -3,24 +3,25 @@
 // Only draws background within local region (2x UI quad linear = 4x area).
 // Outside local region: black.
 // Foreground UI (texAlpha > 0.5) and Background UI (texAlpha <= 0.5) use separate
-// Alpha and Y-Scale controls. Y-Scale is applied to the MIXED result (not UI alone).
+// Alpha controls. Y-Scale is unified (single fgYScale for all UI pixels).
 // CbCr-Scale is kept for future use (currently applied to mixed Cb/Cr).
+// blendingMode: 0=linear alpha blend, 1=sRGB alpha blend (in BT.709 domain).
 
 #version 450
 
-layout(binding = 0) uniform sampler2D texRGB;    // sRGB texture -> hardware decodes to linear
+layout(binding = 0) uniform sampler2D texRGB;    // sRGB texture -> hardware decodes to linear BT.709
 layout(binding = 1) uniform sampler2D texAlpha;  // linear alpha texture
 layout(binding = 2) uniform sampler2D texBG;     // background image (sRGB -> linear BT.709)
 
 layout(push_constant) uniform FragPush {
     // bytes 0-15: vertex (offset + scale) — full-screen: offset=(0,0), scale=(2,2)
-    layout(offset = 16) float fgAlpha;        // foreground alpha (mix alpha, not eff)
-    layout(offset = 20) float bgMultiplier;    // background brightness multiplier
-    layout(offset = 24) float fgYScale;       // foreground Y-Scale (applied to MIXED result)
+    layout(offset = 16) float fgAlpha;        // foreground alpha (plain mix alpha)
+    layout(offset = 20) float bgMultiplier;    // background brightness multiplier (non-UI bg only)
+    layout(offset = 24) float fgYScale;       // Y-Scale (applied to MIXED result, unified)
     layout(offset = 28) float cbcrScale;      // CbCr scale factor (shared, on mixed result)
     layout(offset = 32) vec2  uiOffset;        // UI area bottom-left in screen UV [0,1]
     layout(offset = 40) vec2  uiScale;         // UI area size in screen UV [0,1]
-    layout(offset = 48) float bgAlpha;        // background alpha (mix alpha, not eff)
+    layout(offset = 48) float bgAlpha;        // background alpha (plain mix alpha)
     layout(offset = 52) float blendingMode;   // 0=linear blend, 1=sRGB blend
 } fpc;
 
@@ -50,20 +51,6 @@ vec3 linearToPQ(vec3 linearNits) {
     return pow(num / den, vec3(m2));
 }
 
-// ST.2084 PQ EOTF: PQ code [0,1] -> linear nit
-vec3 pqDecode(vec3 pq) {
-    const float m1 = 2610.0 / 16384.0;
-    const float m2 = 2523.0 / 32.0;
-    const float c1 = 3424.0 / 4096.0;
-    const float c2 = 2413.0 / 128.0;
-    const float c3 = 2392.0 / 128.0;
-
-    vec3 vp  = pow(max(pq, vec3(0.0)), vec3(1.0 / m2));
-    vec3 num = max(vp - vec3(c1), vec3(0.0));
-    vec3 den = max(vec3(c2) - vec3(c3) * vp, vec3(0.0001));
-    return 10000.0 * pow(num / den, vec3(1.0 / m1));
-}
-
 // BT.2020 YCbCr conversion (10-bit full range, on PQ non-linear values)
 vec3 rgb2ycbcr(vec3 rgb) {
     float Y  = 0.2627 * rgb.r + 0.6780 * rgb.g + 0.0593 * rgb.b;
@@ -83,7 +70,7 @@ vec3 ycbcr2rgb(vec3 ycbcr) {
     return vec3(R, G, B);
 }
 
-// sRGB transfer functions (IEC 61966-2-1) — for sRGB-domain alpha blending
+// sRGB transfer functions (IEC 61966-2-1) — for sRGB-domain alpha blending in BT.709
 vec3 linearToSRGB(vec3 c) {
     bvec3 mask = lessThanEqual(c, vec3(0.0031308));
     vec3 lo = c * 12.92;
@@ -99,22 +86,21 @@ vec3 sRGBToLinear(vec3 c) {
 }
 
 void main() {
-    // Local region = 2× UI quad linear (4× area), centered, clamped to [0,1]
+    // Local region = 2x UI quad linear (4x area), centered, clamped to [0,1]
     vec2 localMin = max(vec2(0.5) - fpc.uiScale, vec2(0.0));
     vec2 localMax = min(vec2(0.5) + fpc.uiScale, vec2(1.0));
     bool insideLocal = (fragUV.x >= localMin.x && fragUV.x <= localMax.x &&
                         fragUV.y >= localMin.y && fragUV.y <= localMax.y);
 
     if (!insideLocal) {
-        // Outside local region: black
         outColor = vec4(0.0, 0.0, 0.0, 1.0);
         return;
     }
 
-    // 1. Sample background (sRGB -> linear BT.709, only in local region)
-    vec3 bgRGB   = texture(texBG, fragUV).rgb;
+    // 1. Sample background (sRGB -> hardware decodes to linear BT.709 [0,1])
+    vec3 bgRGB        = texture(texBG, fragUV).rgb;
     vec3 bgNit_raw    = BT709_TO_BT2020 * (bgRGB * PAPER_WHITE_NIT);  // raw, no multiplier
-    vec3 bgNit_scaled = bgNit_raw * fpc.bgMultiplier;                  // adjusted by BG Nit slider
+    vec3 bgNit_scaled = bgNit_raw * fpc.bgMultiplier;                 // adjusted by BG Nit slider
 
     // 2. Compute UI UV from full-screen UV
     vec2 uiUV = (fragUV - fpc.uiOffset) / fpc.uiScale;
@@ -127,40 +113,36 @@ void main() {
         return;
     }
 
-    // 3. Sample UI (sRGB -> linear BT.709)
+    // 3. Sample UI (sRGB -> hardware decodes to linear BT.709 [0,1])
     vec3  uiRGB    = texture(texRGB, uiUV).rgb;
     float texAlpha = texture(texAlpha, uiUV).r;
 
-    // 4. UI -> BT.2020 nit
-    vec3 uiNit709  = uiRGB * PAPER_WHITE_NIT;
-    vec3 uiNit2020 = BT709_TO_BT2020 * uiNit709;
+    // 4. UI -> BT.2020 nit (for linear blend path)
+    vec3 uiNit2020 = BT709_TO_BT2020 * (uiRGB * PAPER_WHITE_NIT);
 
-    // 5. Non-separated: mix UI with bg FIRST (linear nits domain)
-    //    Then apply Y-Scale on the MIXED result (not UI alone).
+    // 5. Non-separated: mix UI with bg FIRST, then apply Y-Scale on the MIXED result.
     //
-    //    IMPORTANT: UI-covered pixels (alpha != 0) use RAW bg (no bgMultiplier).
-    //    BG Nit slider only affects non-UI background. UI area brightness
-    //    is controlled solely by Y-Scale. This lets the operator independently
-    //    set B (via BG Nit) and adjust Y-Scale without interference.
+    //    UI-covered pixels (alpha != 0) use RAW bg (no bgMultiplier).
+    //    Non-UI pixels (alpha == 0) use scaled bg (bgMultiplier applied).
+    //    NOTE: This creates a brightness seam at the UI edge when bgMultiplier != 1.
+    //    This is intentional — BG Nit controls non-UI bg only, Y-Scale controls UI area.
     if (texAlpha > 0.0) {
-        // Compute alpha for mixing (fg/bg distinction by texAlpha threshold)
+        // Plain mix alpha (not eff-alpha): texAlpha * sliderAlpha, clamped
         float sliderAlpha = (texAlpha > 0.5) ? fpc.fgAlpha : fpc.bgAlpha;
-        float alpha = clamp(texAlpha * min(sliderAlpha, 1.0)
-                          + max(0.0, sliderAlpha - 1.0), 0.0, 1.0);
+        float alpha = clamp(texAlpha * sliderAlpha, 0.0, 1.0);
 
-        // Mix UI with bg (raw, no bgMultiplier) in linear nits domain
         vec3 mixedNit;
         if (fpc.blendingMode > 0.5) {
-            // sRGB domain blending: normalize to [0,1], sRGB encode, blend, decode, back to nits
-            vec3 ui_norm  = clamp(uiNit2020  / PAPER_WHITE_NIT, vec3(0.0), vec3(1.0));
-            vec3 bg_norm  = clamp(bgNit_raw  / PAPER_WHITE_NIT, vec3(0.0), vec3(1.0));
-            vec3 ui_srgb  = linearToSRGB(ui_norm);
-            vec3 bg_srgb  = linearToSRGB(bg_norm);
+            // sRGB domain blending in BT.709 (texture's native domain).
+            // uiRGB and bgRGB are linear BT.709 [0,1] (hardware sRGB decode).
+            // Encode to sRGB, blend in sRGB domain, decode back to linear BT.709.
+            vec3 ui_srgb    = linearToSRGB(uiRGB);
+            vec3 bg_srgb    = linearToSRGB(bgRGB);
             vec3 mixed_srgb = ui_srgb * alpha + bg_srgb * (1.0 - alpha);
-            vec3 mixed_norm = sRGBToLinear(mixed_srgb);
-            mixedNit = mixed_norm * PAPER_WHITE_NIT;
+            vec3 mixed_lin  = sRGBToLinear(mixed_srgb);
+            mixedNit = BT709_TO_BT2020 * (mixed_lin * PAPER_WHITE_NIT);
         } else {
-            // Linear domain blending (default)
+            // Linear domain blending (in BT.2020 nits — linear blend commutes with matrix)
             mixedNit = uiNit2020 * alpha + bgNit_raw * (1.0 - alpha);
         }
 
@@ -169,10 +151,9 @@ void main() {
         vec3 rgb10    = pq_mixed * 1023.0;
         vec3 ycbcr    = rgb2ycbcr(rgb10);
 
-        // 7. Y x Y-Scale (on MIXED result, unified fgYScale for all UI pixels)
-        float yScale = fpc.fgYScale;
-        ycbcr.x = ycbcr.x * yScale;
-        // CbCr-Scale (kept for future use, currently on mixed Cb/Cr)
+        // 7. Y x Y-Scale (on MIXED result, unified for all UI pixels)
+        ycbcr.x = ycbcr.x * fpc.fgYScale;
+        // CbCr-Scale (kept for future use)
         ycbcr.y = 512.0 + (ycbcr.y - 512.0) * fpc.cbcrScale;
         ycbcr.z = 512.0 + (ycbcr.z - 512.0) * fpc.cbcrScale;
 

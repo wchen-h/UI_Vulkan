@@ -259,11 +259,11 @@ void HDRApp::hdrImGui() {
 
     ImGui::Separator();
     ImGui::Text("Foreground UI (alpha > 0.5)");
-    ImGui::SliderFloat("FG Alpha", &fgAlpha_, 0.0f, 2.0f);
+    ImGui::SliderFloat("FG Alpha", &fgAlpha_, 0.0f, 1.0f);
     ImGui::DragFloat("Y-Scale (mixed)", &fgYScale_, 0.01f, 0.0f, 10.0f, "%.3f");
     ImGui::Separator();
     ImGui::Text("Background UI (alpha <= 0.5)");
-    ImGui::SliderFloat("BG Alpha", &bgAlpha_, 0.0f, 2.0f);
+    ImGui::SliderFloat("BG Alpha", &bgAlpha_, 0.0f, 1.0f);
     ImGui::Separator();
     ImGui::RadioButton("Linear Blend", &blendingMode_, 0); ImGui::SameLine();
     ImGui::RadioButton("sRGB Blend", &blendingMode_, 1);

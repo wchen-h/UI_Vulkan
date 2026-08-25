@@ -1098,8 +1098,8 @@ void recordUIPass(WindowContext& wc, VkCommandBuffer cmd, uint32_t imageIdx,
     //   [28-31]  cbcrScale (shared)
     //   [32-39]  uiOffset (vec2)
     //   [40-47]  uiScale  (vec2)
-    //   [48-51]  bgAlpha (background Eff.Alpha)
-    //   [52-55]  bgYScale (background Y-Scale)
+    //   [48-51]  bgAlpha (background alpha)
+    //   [52-55]  bgYScale/blendingMode (HDR: blendingMode 0=linear 1=sRGB; SDR: same)
     float pcData[14] = {
         0.0f, 0.0f,           // vertex offset
         2.0f, 2.0f,           // vertex scale (full-screen)
