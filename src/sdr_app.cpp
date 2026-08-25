@@ -234,6 +234,8 @@ void SDRApp::sdrImGui() {
     }
     ImGui::SliderFloat("FG Alpha", &sdrFgAlpha_, 0.1f, 1.0f, "%.1f");
     ImGui::SliderFloat("BG Alpha", &sdrBgAlpha_, 0.1f, 1.0f, "%.1f");
+    ImGui::RadioButton("Linear Blend", &blendingMode_, 0); ImGui::SameLine();
+    ImGui::RadioButton("sRGB Blend", &blendingMode_, 1);
     ImGui::PopItemWidth();
     ImGui::End();
 
@@ -347,7 +349,7 @@ void SDRApp::drawFrame() {
     vkBeginCommandBuffer(cmd, &bi);
 
     recordUIPass(wc, cmd, imageIdx, uiPairs_, currentUI_, quadVB_, bgMultiplier_,
-                 sdrFgAlpha_, sdrBgAlpha_, 1.0f, 1.0f, 1.0f);
+                 sdrFgAlpha_, sdrBgAlpha_, 1.0f, (float)blendingMode_, 1.0f);
     recordConvertPass(cmd, imageIdx);
     recordImGuiPass(wc, cmd, imageIdx);
 

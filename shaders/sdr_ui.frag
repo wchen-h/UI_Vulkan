@@ -1,8 +1,9 @@
-// SDR merged shader: UI mixing (BT.709 linear) + sRGB encode
+// SDR merged shader: UI mixing (BT.709 linear or sRGB domain) + sRGB encode
 // Only draws background within local region (2× UI quad linear = 4× area).
 // Outside local region: black.
 // Foreground UI (texAlpha > 0.5) and Background UI (texAlpha <= 0.5) use separate
 // alpha controls.
+// blendingMode (offset 52, repurposed from bgYScale): 0=linear blend, 1=sRGB blend
 
 #version 450
 
@@ -19,11 +20,26 @@ layout(push_constant) uniform FragPush {
     layout(offset = 32) vec2  uiOffset;        // UI area bottom-left in screen UV [0,1]
     layout(offset = 40) vec2  uiScale;         // UI area size in screen UV [0,1]
     layout(offset = 48) float bgAlpha;        // background alpha
-    layout(offset = 52) float bgYScale;       // unused in SDR (layout compat with HDR)
+    layout(offset = 52) float blendingMode;   // 0=linear blend, 1=sRGB blend (SDR only)
 } fpc;
 
 layout(location = 0) in vec2 fragUV;
 layout(location = 0) out vec4 outColor;
+
+// sRGB transfer functions (IEC 61966-2-1)
+vec3 linearToSRGB(vec3 c) {
+    bvec3 mask = lessThanEqual(c, vec3(0.0031308));
+    vec3 lo = c * 12.92;
+    vec3 hi = pow(c, vec3(1.0 / 2.4)) * 1.055 - 0.055;
+    return mix(hi, lo, mask);
+}
+
+vec3 sRGBToLinear(vec3 c) {
+    bvec3 mask = lessThanEqual(c, vec3(0.04045));
+    vec3 lo = c / 12.92;
+    vec3 hi = pow((c + 0.055) / 1.055, vec3(2.4));
+    return mix(hi, lo, mask);
+}
 
 void main() {
     // Local region = 2× UI quad linear (4× area), centered, clamped to [0,1]
@@ -61,7 +77,18 @@ void main() {
     // use separate alpha sliders.
     float sliderAlpha = (texAlpha > 0.5) ? fpc.fgAlpha : fpc.bgAlpha;
     float effAlpha = texAlpha * sliderAlpha;
-    vec3  blended  = uiRGB * effAlpha + bg * (1.0 - effAlpha);
+
+    vec3 blended;
+    if (fpc.blendingMode > 0.5) {
+        // sRGB domain blending: convert to sRGB, blend, convert back to linear
+        vec3 uiSRGB  = linearToSRGB(uiRGB);
+        vec3 bgSRGB  = linearToSRGB(bg);
+        vec3 blendedSRGB = uiSRGB * effAlpha + bgSRGB * (1.0 - effAlpha);
+        blended = sRGBToLinear(blendedSRGB);
+    } else {
+        // Linear domain blending (default)
+        blended = uiRGB * effAlpha + bg * (1.0 - effAlpha);
+    }
 
     outColor = vec4(blended, 1.0);
 }

@@ -31,3 +31,10 @@ presentation_*.pptx
 # HDR/SDR bin 数据与生成产物 (源数据 + rotate/processed/mixed 等中间产物, 体积大, 不入库)
 bin/
 
+
+# Lock files
+*.~lock*
+
+# Zip archives
+*.zip
+

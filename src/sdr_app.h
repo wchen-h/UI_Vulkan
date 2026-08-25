@@ -34,4 +34,5 @@ private:
     int currentBG_ = 0;
     float bgMultiplier_ = 0.0f;
     float localAvgNit_ = 0.0f;
+    int blendingMode_ = 0;  // 0=linear alpha blend, 1=sRGB alpha blend
 };
