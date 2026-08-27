@@ -298,6 +298,7 @@ void HDRApp::switchBackground() {
     currentBG_ = (currentBG_ + 1) % bgTextures_.size();
     updateBGDescriptorSets();
     computeLocalAvgNit();
+    bgNit_ = (int)localAvgNit_;
 }
 
 void HDRApp::computeLocalAvgNit() {

@@ -321,7 +321,7 @@ void SDRApp::computeLocalAvgNit() {
         }
     }
     localAvgNit_ = count > 0 ? (float)(totalNit / count) : 0.0f;
-    bgMultiplier_ = localAvgNit_ > 0.0f ? (BG_GRAY * PAPER_WHITE_NIT) / localAvgNit_ : 0.0f;
+    bgMultiplier_ = 1.0f;
     std::cout << "[LocalAvg] UI=" << currentUI_ << " region=[" << (bx1-bx0) << "x" << (by1-by0)
               << "] localAvg=" << localAvgNit_ << " multiplier=" << bgMultiplier_ << std::endl;
 }
