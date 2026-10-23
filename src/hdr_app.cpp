@@ -97,15 +97,15 @@ void HDRApp::init() {
             std::cout << "[BG] Loaded " << fn << " avgNit=" << avgNit << std::endl;
         }
 
-        // White background (sRGB 255,255,255 = 350 nit/chan, 64×64)
-        uint8_t whitePix[4] = {255, 255, 255, 255};
-        std::vector<uint8_t> whiteRaw;
-        UITexture whiteTex = createSolidTexture(core_, 64, 64, whitePix, whiteRaw);
-        bgTextures_.push_back(whiteTex);
-        bgRawList_.push_back(std::move(whiteRaw));
+        // 18% gray background (sRGB 118 = linear 0.18 = 63 nit @ paper-white 350 nit, 64×64)
+        uint8_t grayPix[4] = {118, 118, 118, 255};
+        std::vector<uint8_t> grayRaw;
+        UITexture grayTex = createSolidTexture(core_, 64, 64, grayPix, grayRaw);
+        bgTextures_.push_back(grayTex);
+        bgRawList_.push_back(std::move(grayRaw));
         bgWList_.push_back(64);
         bgHList_.push_back(64);
-        bgNames_.push_back("White");
+        bgNames_.push_back("18% Gray");
         currentBG_ = 0;
     }
 
