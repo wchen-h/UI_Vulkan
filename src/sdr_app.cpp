@@ -233,6 +233,9 @@ void SDRApp::sdrImGui() {
     if (!bgNames_.empty()) {
         ImGui::Text("BG: %s (%d/%d)", bgNames_[currentBG_].c_str(), currentBG_+1, (int)bgTextures_.size());
     }
+    if (ImGui::DragInt("BG Nit", &sdrBgNit_, 1.0f, 0, 350)) {
+        bgMultiplier_ = localAvgNit_ > 0.0f ? (float)sdrBgNit_ / localAvgNit_ : 0.0f;
+    }
     ImGui::SliderFloat("FG Alpha", &sdrFgAlpha_, 0.1f, 1.0f, "%.1f");
     ImGui::SliderFloat("BG Alpha", &sdrBgAlpha_, 0.1f, 1.0f, "%.1f");
     ImGui::RadioButton("Linear Blend", &blendingMode_, 0); ImGui::SameLine();
@@ -322,7 +325,7 @@ void SDRApp::computeLocalAvgNit() {
         }
     }
     localAvgNit_ = count > 0 ? (float)(totalNit / count) : 0.0f;
-    bgMultiplier_ = localAvgNit_ > 0.0f ? (BG_GRAY * PAPER_WHITE_NIT) / localAvgNit_ : 0.0f;
+    bgMultiplier_ = localAvgNit_ > 0.0f ? (float)sdrBgNit_ / localAvgNit_ : 0.0f;
     std::cout << "[LocalAvg] UI=" << currentUI_ << " region=[" << (bx1-bx0) << "x" << (by1-by0)
               << "] localAvg=" << localAvgNit_ << " multiplier=" << bgMultiplier_ << std::endl;
 }

@@ -34,5 +34,6 @@ private:
     int currentBG_ = 0;
     float bgMultiplier_ = 0.0f;
     float localAvgNit_ = 0.0f;
+    int sdrBgNit_ = 63;  // SDR 背景亮度 (nit)，默认 63 = 18% 灰 @350
     int blendingMode_ = 0;  // 0=linear alpha blend, 1=sRGB alpha blend
 };
