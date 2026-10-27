@@ -48,7 +48,7 @@ void recordUIPass(WindowContext& wc, VkCommandBuffer cmd, uint32_t imageIdx,
                    const std::vector<UIPair>& uiPairs, int currentUI,
                    VkBuffer quadVB, float bgMultiplier,
                    float fgAlpha, float bgAlpha,
-                   float fgYScale, float bgYScale,
+                   float uiK, float blendingMode,
                    float cbcrScale);
 void recordImGuiPass(WindowContext& wc, VkCommandBuffer cmd, uint32_t imageIdx);
 void cleanupWindow(WindowContext& wc, VulkanCore& core);

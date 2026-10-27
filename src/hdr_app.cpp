@@ -260,12 +260,11 @@ void HDRApp::hdrImGui() {
     ImGui::Separator();
     ImGui::Text("Foreground UI (alpha > 0.5)");
     ImGui::SliderFloat("FG Eff.Alpha", &fgAlpha_, 0.0f, 2.0f);
-    ImGui::DragFloat("FG Y-Scale", &fgYScale_, 0.01f, 0.0f, 10.0f, "%.3f");
     ImGui::Separator();
     ImGui::Text("Background UI (alpha <= 0.5)");
     ImGui::SliderFloat("BG Eff.Alpha", &bgAlpha_, 0.0f, 2.0f);
-    ImGui::DragFloat("BG Y-Scale", &bgYScale_, 0.01f, 0.0f, 10.0f, "%.3f");
     ImGui::Separator();
+    ImGui::DragFloat("UI K", &uiK_, 0.01f, 0.0f, 10.0f, "%.3f");
     ImGui::DragFloat("CbCr-Scale", &cbcrScale_, 0.001f, 0.0f, 3.0f, "%.3f");
     ImGui::PopItemWidth();
     ImGui::End();
@@ -465,7 +464,7 @@ void HDRApp::drawFrame() {
     // HDR: compute bg multiplier from slider value and avg nit
     float bgMultiplier = localAvgNit_ > 0.0f ? (float)bgNit_ / localAvgNit_ : 0.0f;
     recordUIPass(wc, cmd, imageIdx, uiPairs_, currentUI_, quadVB_, bgMultiplier,
-                 fgAlpha_, bgAlpha_, fgYScale_, bgYScale_, cbcrScale_);
+                 fgAlpha_, bgAlpha_, uiK_, 0.0f, cbcrScale_);
 
     // Copy linear intermediate to readback buffer for average luminance computation
     if (readbackBuf_ != VK_NULL_HANDLE) {

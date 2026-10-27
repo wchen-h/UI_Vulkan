@@ -63,7 +63,7 @@ def generate_assets():
 
 
 def generate_csv():
-    header = ["SDR_UI_Nit", "SDR_BG_Nit", "HDR_BG_Nit", "UI素材", "匹配_Y_Scale", "备注"]
+    header = ["SDR_UI_Nit", "SDR_BG_Nit", "HDR_BG_Nit", "UI素材", "匹配_K", "备注"]
     total = len(UI_NITS) * len(SDR_BG_NITS) * len(HDR_BG_NITS)
     with open(OUT_CSV, "w", encoding="utf-8-sig", newline="") as f:
         w = csv.writer(f)

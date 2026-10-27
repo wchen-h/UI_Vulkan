@@ -28,8 +28,7 @@ private:
     int maxNit_  = 4000, bgNit_ = 124;
     float fgAlpha_   = 1.0f;
     float bgAlpha_   = 1.0f;
-    float fgYScale_  = 1.0f;
-    float bgYScale_  = 1.0f;
+    float uiK_  = 1.0f;
     float cbcrScale_ = 1.0f;
     float avgMixedNit_ = 0.0f;
     std::vector<UITexture> bgTextures_;

@@ -1,8 +1,8 @@
-// HDR merged shader: UI adjustment (BT.2020 PQ YCbCr) + then mix with BG texture
+// HDR merged shader: UI linear-K gain (BT.2408) + CbCr adjust + mix with BG texture
 // Only draws background within local region (2× UI quad linear = 4× area).
 // Outside local region: black.
 // Foreground UI (texAlpha > 0.5) and Background UI (texAlpha <= 0.5) use separate
-// Eff.Alpha and Y-Scale controls.
+// Eff.Alpha and linear-K controls.
 
 #version 450
 
@@ -14,12 +14,11 @@ layout(push_constant) uniform FragPush {
     // bytes 0-15: vertex (offset + scale) — full-screen: offset=(0,0), scale=(2,2)
     layout(offset = 16) float fgAlpha;        // foreground Eff.Alpha
     layout(offset = 20) float bgMultiplier;    // background brightness multiplier
-    layout(offset = 24) float fgYScale;       // foreground Y scale factor
+    layout(offset = 24) float uiK;             // UI linear gain K (BT.2408), whole UI
     layout(offset = 28) float cbcrScale;      // CbCr scale factor (shared)
     layout(offset = 32) vec2  uiOffset;        // UI area bottom-left in screen UV [0,1]
     layout(offset = 40) vec2  uiScale;         // UI area size in screen UV [0,1]
     layout(offset = 48) float bgAlpha;        // background Eff.Alpha
-    layout(offset = 52) float bgYScale;       // background Y scale factor
 } fpc;
 
 layout(location = 0) in vec2 fragUV;
@@ -118,27 +117,20 @@ void main() {
     vec3 uiNit709  = uiRGB * PAPER_WHITE_NIT;
     vec3 uiNit2020 = BT709_TO_BT2020 * uiNit709;
 
-    // 6-7. PQ encode UI only -> 10-bit
+    // 6. Linear gain K (BT.2408 SDR->HDR up-conversion, chromaticity-preserving).
+    //    Single K brightens the whole UI (foreground + semi-transparent edge).
+    uiNit2020 *= fpc.uiK;
+
+    // 7-8. PQ encode UI only -> 10-bit
     vec3 pq    = linearToPQ(uiNit2020);
     vec3 rgb10 = pq * 1023.0;
 
-    // 8-9. YCbCr + adjustment (UI only, BG not involved)
-    //      Foreground (texAlpha > 0.5) and Background (texAlpha <= 0.5)
-    //      use separate Y-Scale; CbCr-Scale is shared.
+    // 9. YCbCr + CbCr adjustment (UI only, BG not involved)
     vec3 ycbcr = rgb2ycbcr(rgb10);
-    float yScale = 1.0;
     float effAlpha = 0.0;
     if (texAlpha > 0.0) {
-        float sliderAlpha;
-        if (texAlpha > 0.5) {
-            sliderAlpha = fpc.fgAlpha;
-            yScale = fpc.fgYScale;
-        } else {
-            sliderAlpha = fpc.bgAlpha;
-            yScale = fpc.bgYScale;
-        }
+        float sliderAlpha = (texAlpha > 0.5) ? fpc.fgAlpha : fpc.bgAlpha;
         effAlpha = clamp(texAlpha * min(sliderAlpha, 1.0) + max(0.0, sliderAlpha - 1.0), 0.0, 1.0);
-        ycbcr.x = ycbcr.x * yScale;
         ycbcr.y = 512.0 + (ycbcr.y - 512.0) * fpc.cbcrScale;
         ycbcr.z = 512.0 + (ycbcr.z - 512.0) * fpc.cbcrScale;
     }

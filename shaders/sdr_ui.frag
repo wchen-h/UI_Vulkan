@@ -3,7 +3,7 @@
 // Outside local region: black.
 // Foreground UI (texAlpha > 0.5) and Background UI (texAlpha <= 0.5) use separate
 // alpha controls.
-// blendingMode (offset 52, repurposed from bgYScale): 0=linear blend, 1=sRGB blend
+// blendingMode (offset 52): 0=linear blend, 1=sRGB blend (unused in HDR)
 
 #version 450
 
@@ -15,7 +15,7 @@ layout(push_constant) uniform FragPush {
     // bytes 0-15: vertex (offset + scale) — full-screen: offset=(0,0), scale=(2,2)
     layout(offset = 16) float fgAlpha;        // foreground alpha
     layout(offset = 20) float bgMultiplier;    // background brightness multiplier
-    layout(offset = 24) float fgYScale;       // unused in SDR (layout compat with HDR)
+    layout(offset = 24) float uiK;             // unused in SDR (layout compat with HDR)
     layout(offset = 28) float cbcrScale;      // unused in SDR (layout compat with HDR)
     layout(offset = 32) vec2  uiOffset;        // UI area bottom-left in screen UV [0,1]
     layout(offset = 40) vec2  uiScale;         // UI area size in screen UV [0,1]

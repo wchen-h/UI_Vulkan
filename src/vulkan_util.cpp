@@ -1066,7 +1066,7 @@ void recordUIPass(WindowContext& wc, VkCommandBuffer cmd, uint32_t imageIdx,
                    const std::vector<UIPair>& uiPairs, int currentUI,
                    VkBuffer quadVB, float bgMultiplier,
                    float fgAlpha, float bgAlpha,
-                   float fgYScale, float bgYScale,
+                   float uiK, float blendingMode,
                    float cbcrScale) {
     if (uiPairs.empty()) return;
     const auto& ui = uiPairs[currentUI];
@@ -1094,19 +1094,19 @@ void recordUIPass(WindowContext& wc, VkCommandBuffer cmd, uint32_t imageIdx,
     //   [8-15]   vertex scale  (vec2) = (2,2) for full-screen (verts are ±0.5)
     //   [16-19]  fgAlpha (foreground Eff.Alpha)
     //   [20-23]  bgMultiplier
-    //   [24-27]  fgYScale (foreground Y-Scale)
+    //   [24-27]  uiK (UI linear gain K)
     //   [28-31]  cbcrScale (shared)
     //   [32-39]  uiOffset (vec2)
     //   [40-47]  uiScale  (vec2)
     //   [48-51]  bgAlpha (background Eff.Alpha)
-    //   [52-55]  bgYScale (background Y-Scale)
+    //   [52-55]  blendingMode (SDR only; HDR unused)
     float pcData[14] = {
         0.0f, 0.0f,           // vertex offset
         2.0f, 2.0f,           // vertex scale (full-screen)
-        fgAlpha, bgMultiplier, fgYScale, cbcrScale,
+        fgAlpha, bgMultiplier, uiK, cbcrScale,
         uiOffX, uiOffY,       // UI area offset in screen UV
         fracX, fracY,         // UI area scale in screen UV
-        bgAlpha, bgYScale,    // background UI controls
+        bgAlpha, blendingMode,         // SDR blending mode (HDR unused)
     };
 
     VkClearValue clearVal{};
